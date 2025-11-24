@@ -195,6 +195,7 @@ impl Components {
         let blake_round_component = blake_round::Component::new(
             tree_span_provider,
             blake_round::Eval {
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("blake_round"),
                 claim: claim.claim.as_ref().unwrap().blake_round,
                 blake_g_lookup_elements: interaction_elements.blake_g.clone(),
                 blake_round_lookup_elements: interaction_elements.blake_round.clone(),
@@ -214,6 +215,7 @@ impl Components {
         let blake_g_component = blake_g::Component::new(
             tree_span_provider,
             blake_g::Eval {
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("blake_g"),
                 claim: claim.claim.as_ref().unwrap().blake_g,
                 blake_g_lookup_elements: interaction_elements.blake_g.clone(),
                 verify_bitwise_xor_12_lookup_elements: interaction_elements
@@ -241,6 +243,7 @@ impl Components {
         let blake_sigma_component = blake_round_sigma::Component::new(
             tree_span_provider,
             blake_round_sigma::Eval {
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("blake_round_sigma"),
                 claim: claim.claim.as_ref().unwrap().blake_sigma,
                 blake_round_sigma_lookup_elements: interaction_elements.blake_sigma.clone(),
             },
@@ -250,6 +253,7 @@ impl Components {
         let triple_xor_32_component = triple_xor_32::Component::new(
             tree_span_provider,
             triple_xor_32::Eval {
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("triple_xor_32"),
                 claim: claim.claim.as_ref().unwrap().triple_xor_32,
                 triple_xor_32_lookup_elements: interaction_elements.triple_xor_32.clone(),
                 verify_bitwise_xor_8_lookup_elements: interaction_elements

@@ -80,7 +80,7 @@ macro_rules! range_check_prover {
 
                     tree_builder.extend_evals(trace);
 
-                    let claim = Claim {};
+                    let claim = Claim { log_size };
 
                     let interaction_claim_prover = InteractionClaimGenerator {
                         multiplicities: multiplicity_data,
@@ -272,7 +272,8 @@ mod tests {
         let component = FrameworkComponent::new(
             tree_span_provider,
             Eval {
-                claim: Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_7_2_5"),
+                claim: Claim { log_size: LOG_HEIGHT },
                 range_check_7_2_5_lookup_elements: lookup_elements,
             },
             interaction_claim.claimed_sum,

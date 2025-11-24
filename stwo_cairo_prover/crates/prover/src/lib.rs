@@ -6,3 +6,6 @@ pub mod prover;
 
 pub use stwo;
 pub mod witness;
+
+#[cfg(test)]
+pub mod test_utils;

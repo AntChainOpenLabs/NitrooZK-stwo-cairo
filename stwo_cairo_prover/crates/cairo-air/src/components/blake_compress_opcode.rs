@@ -41,7 +41,9 @@ pub const RELATION_USES_PER_ROW: [RelationUse; 8] = [
     },
 ];
 
+#[repr(C)]
 pub struct Eval {
+    pub eval_id: u32,
     pub claim: Claim,
     pub verify_instruction_lookup_elements: relations::VerifyInstruction,
     pub memory_address_to_id_lookup_elements: relations::MemoryAddressToId,
@@ -719,6 +721,7 @@ mod tests {
     use rand::{Rng, SeedableRng};
     use stwo::core::fields::qm31::QM31;
     use stwo_constraint_framework::expr::ExprEvaluator;
+    use stwo_constraint_framework::fnv1a_eval_id_gen;
 
     use super::*;
     use crate::components::constraints_regression_test_values::BLAKE_COMPRESS_OPCODE;
@@ -727,6 +730,7 @@ mod tests {
     fn blake_compress_opcode_constraints_regression() {
         let mut rng = SmallRng::seed_from_u64(0);
         let eval = Eval {
+            eval_id: fnv1a_eval_id_gen("blake_compress_opcode"),
             claim: Claim { log_size: 4 },
             verify_instruction_lookup_elements: relations::VerifyInstruction::dummy(),
             memory_address_to_id_lookup_elements: relations::MemoryAddressToId::dummy(),

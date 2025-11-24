@@ -86,7 +86,9 @@ relation!(RelationElements, N_LOGUP_POWERS);
 /// IDs are continuous and start from 0.
 /// Values are Felt252 stored as `N_M31_IN_FELT252` M31 values (each value containing 9 bits).
 #[derive(Clone)]
+#[repr(C)]
 pub struct BigEval {
+    pub eval_id: u32,
     pub log_n_rows: u32,
     // Internal offset of the ids when there are multiple components.
     pub offset: u32,
@@ -116,6 +118,7 @@ impl BigEval {
         range_check_9_9_h_lookup_elements: relations::RangeCheck_9_9_H,
     ) -> Self {
         Self {
+            eval_id: 0,  // Will be set by caller
             log_n_rows,
             offset,
             lookup_elements,
@@ -408,8 +411,10 @@ mod tests {
 
     #[test]
     fn memory_id_to_big_constraints_regression() {
+        use stwo_constraint_framework::fnv1a_eval_id_gen;
         let mut rng = SmallRng::seed_from_u64(0);
         let big_eval = BigEval {
+            eval_id: fnv1a_eval_id_gen("memory_id_to_big"),
             log_n_rows: 4,
             offset: 0,
             lookup_elements: relations::MemoryIdToBig::dummy(),

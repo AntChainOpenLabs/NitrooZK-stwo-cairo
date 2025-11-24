@@ -6,6 +6,7 @@ use stwo::core::fields::qm31::{SecureField, QM31};
 use stwo::core::pcs::TreeVec;
 use stwo::prover::backend::simd::SimdBackend;
 use stwo::prover::ComponentProver;
+use stwo_cairo_common::fnv1a_eval_id_gen;
 use stwo_cairo_serialize::{CairoDeserialize, CairoSerialize};
 use stwo_constraint_framework::TraceLocationAllocator;
 
@@ -312,6 +313,7 @@ impl OpcodeComponents {
                 add_opcode::Component::new(
                     tree_span_provider,
                     add_opcode::Eval {
+                        eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("add_opcode"),
                         claim,
                         memory_address_to_id_lookup_elements: interaction_elements
                             .memory_address_to_id
@@ -336,6 +338,7 @@ impl OpcodeComponents {
                 add_opcode_small::Component::new(
                     tree_span_provider,
                     add_opcode_small::Eval {
+                        eval_id: fnv1a_eval_id_gen("add_opcode_small"),
                         claim,
                         memory_address_to_id_lookup_elements: interaction_elements
                             .memory_address_to_id
@@ -360,6 +363,7 @@ impl OpcodeComponents {
                 add_ap_opcode::Component::new(
                     tree_span_provider,
                     add_ap_opcode::Eval {
+                        eval_id: fnv1a_eval_id_gen("add_ap_opcode"),
                         claim,
                         memory_address_to_id_lookup_elements: interaction_elements
                             .memory_address_to_id
@@ -392,6 +396,7 @@ impl OpcodeComponents {
                 assert_eq_opcode::Component::new(
                     tree_span_provider,
                     assert_eq_opcode::Eval {
+                        eval_id: fnv1a_eval_id_gen("assert_eq_opcode"),
                         claim,
                         memory_address_to_id_lookup_elements: interaction_elements
                             .memory_address_to_id
@@ -413,6 +418,7 @@ impl OpcodeComponents {
                 assert_eq_opcode_imm::Component::new(
                     tree_span_provider,
                     assert_eq_opcode_imm::Eval {
+                        eval_id: fnv1a_eval_id_gen("assert_eq_opcode_imm"),
                         claim,
                         memory_address_to_id_lookup_elements: interaction_elements
                             .memory_address_to_id
@@ -434,6 +440,7 @@ impl OpcodeComponents {
                 assert_eq_opcode_double_deref::Component::new(
                     tree_span_provider,
                     assert_eq_opcode_double_deref::Eval {
+                        eval_id: fnv1a_eval_id_gen("assert_eq_opcode_double_deref"),
                         claim,
                         memory_address_to_id_lookup_elements: interaction_elements
                             .memory_address_to_id
@@ -458,6 +465,7 @@ impl OpcodeComponents {
                 blake_compress_opcode::Component::new(
                     tree_span_provider,
                     blake_compress_opcode::Eval {
+                        eval_id: fnv1a_eval_id_gen("blake_compress_opcode"),
                         claim,
                         blake_round_lookup_elements: interaction_elements.blake_round.clone(),
                         memory_address_to_id_lookup_elements: interaction_elements

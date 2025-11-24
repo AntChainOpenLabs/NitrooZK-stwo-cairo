@@ -42,6 +42,7 @@ pub mod qm_31_add_mul_opcode;
 pub mod range_check_builtin_bits_128;
 pub mod range_check_builtin_bits_96;
 pub mod range_check_felt_252_width_27;
+pub mod range_check_7_2_5;
 pub mod ret_opcode;
 pub mod triple_xor_32;
 pub mod verify_bitwise_xor_12;

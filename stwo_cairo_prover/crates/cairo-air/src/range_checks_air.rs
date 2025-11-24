@@ -330,7 +330,8 @@ impl RangeChecksComponents {
         let rc_6_component = range_check_6::Component::new(
             tree_span_provider,
             range_check_6::Eval {
-                claim: range_check_6::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_6"),
+                claim: range_check_6::Claim { log_size: range_check_6::LOG_SIZE },
                 range_check_6_lookup_elements: interaction_elements.rc_6.clone(),
             },
             interaction_claim.rc_6.claimed_sum,
@@ -338,7 +339,8 @@ impl RangeChecksComponents {
         let rc_8_component = range_check_8::Component::new(
             tree_span_provider,
             range_check_8::Eval {
-                claim: range_check_8::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_8"),
+                claim: range_check_8::Claim { log_size: range_check_8::LOG_SIZE },
                 range_check_8_lookup_elements: interaction_elements.rc_8.clone(),
             },
             interaction_claim.rc_8.claimed_sum,
@@ -346,7 +348,8 @@ impl RangeChecksComponents {
         let rc_11_component = range_check_11::Component::new(
             tree_span_provider,
             range_check_11::Eval {
-                claim: range_check_11::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_11"),
+                claim: range_check_11::Claim { log_size: range_check_11::LOG_SIZE },
                 range_check_11_lookup_elements: interaction_elements.rc_11.clone(),
             },
             interaction_claim.rc_11.claimed_sum,
@@ -354,7 +357,8 @@ impl RangeChecksComponents {
         let rc_12_component = range_check_12::Component::new(
             tree_span_provider,
             range_check_12::Eval {
-                claim: range_check_12::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_12"),
+                claim: range_check_12::Claim { log_size: range_check_12::LOG_SIZE },
                 range_check_12_lookup_elements: interaction_elements.rc_12.clone(),
             },
             interaction_claim.rc_12.claimed_sum,
@@ -362,7 +366,8 @@ impl RangeChecksComponents {
         let rc_18_component = range_check_18::Component::new(
             tree_span_provider,
             range_check_18::Eval {
-                claim: range_check_18::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_18"),
+                claim: range_check_18::Claim { log_size: range_check_18::LOG_SIZE },
                 range_check_18_lookup_elements: interaction_elements.rc_18.clone(),
             },
             interaction_claim.rc_18.claimed_sum,
@@ -370,7 +375,8 @@ impl RangeChecksComponents {
         let rc_18_b_component = range_check_18_b::Component::new(
             tree_span_provider,
             range_check_18_b::Eval {
-                claim: range_check_18_b::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_18_b"),
+                claim: range_check_18_b::Claim { log_size: range_check_18_b::LOG_SIZE },
                 range_check_18_b_lookup_elements: interaction_elements.rc_18_b.clone(),
             },
             interaction_claim.rc_18_b.claimed_sum,
@@ -378,7 +384,8 @@ impl RangeChecksComponents {
         let rc_19_component = range_check_19::Component::new(
             tree_span_provider,
             range_check_19::Eval {
-                claim: range_check_19::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_19"),
+                claim: range_check_19::Claim { log_size: range_check_19::LOG_SIZE },
                 range_check_19_lookup_elements: interaction_elements.rc_19.clone(),
             },
             interaction_claim.rc_19.claimed_sum,
@@ -386,7 +393,8 @@ impl RangeChecksComponents {
         let rc_19_b_component = range_check_19_b::Component::new(
             tree_span_provider,
             range_check_19_b::Eval {
-                claim: range_check_19_b::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_19_b"),
+                claim: range_check_19_b::Claim { log_size: range_check_19_b::LOG_SIZE },
                 range_check_19_b_lookup_elements: interaction_elements.rc_19_b.clone(),
             },
             interaction_claim.rc_19_b.claimed_sum,
@@ -394,7 +402,8 @@ impl RangeChecksComponents {
         let rc_19_c_component = range_check_19_c::Component::new(
             tree_span_provider,
             range_check_19_c::Eval {
-                claim: range_check_19_c::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_19_c"),
+                claim: range_check_19_c::Claim { log_size: range_check_19_c::LOG_SIZE },
                 range_check_19_c_lookup_elements: interaction_elements.rc_19_c.clone(),
             },
             interaction_claim.rc_19_c.claimed_sum,
@@ -402,7 +411,8 @@ impl RangeChecksComponents {
         let rc_19_d_component = range_check_19_d::Component::new(
             tree_span_provider,
             range_check_19_d::Eval {
-                claim: range_check_19_d::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_19_d"),
+                claim: range_check_19_d::Claim { log_size: range_check_19_d::LOG_SIZE },
                 range_check_19_d_lookup_elements: interaction_elements.rc_19_d.clone(),
             },
             interaction_claim.rc_19_d.claimed_sum,
@@ -410,7 +420,8 @@ impl RangeChecksComponents {
         let rc_19_e_component = range_check_19_e::Component::new(
             tree_span_provider,
             range_check_19_e::Eval {
-                claim: range_check_19_e::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_19_e"),
+                claim: range_check_19_e::Claim { log_size: range_check_19_e::LOG_SIZE },
                 range_check_19_e_lookup_elements: interaction_elements.rc_19_e.clone(),
             },
             interaction_claim.rc_19_e.claimed_sum,
@@ -418,7 +429,8 @@ impl RangeChecksComponents {
         let rc_19_f_component = range_check_19_f::Component::new(
             tree_span_provider,
             range_check_19_f::Eval {
-                claim: range_check_19_f::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_19_f"),
+                claim: range_check_19_f::Claim { log_size: range_check_19_f::LOG_SIZE },
                 range_check_19_f_lookup_elements: interaction_elements.rc_19_f.clone(),
             },
             interaction_claim.rc_19_f.claimed_sum,
@@ -426,7 +438,8 @@ impl RangeChecksComponents {
         let rc_19_g_component = range_check_19_g::Component::new(
             tree_span_provider,
             range_check_19_g::Eval {
-                claim: range_check_19_g::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_19_g"),
+                claim: range_check_19_g::Claim { log_size: range_check_19_g::LOG_SIZE },
                 range_check_19_g_lookup_elements: interaction_elements.rc_19_g.clone(),
             },
             interaction_claim.rc_19_g.claimed_sum,
@@ -434,7 +447,8 @@ impl RangeChecksComponents {
         let rc_19_h_component = range_check_19_h::Component::new(
             tree_span_provider,
             range_check_19_h::Eval {
-                claim: range_check_19_h::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_19_h"),
+                claim: range_check_19_h::Claim { log_size: range_check_19_h::LOG_SIZE },
                 range_check_19_h_lookup_elements: interaction_elements.rc_19_h.clone(),
             },
             interaction_claim.rc_19_h.claimed_sum,
@@ -442,7 +456,8 @@ impl RangeChecksComponents {
         let rc_4_3_component = range_check_4_3::Component::new(
             tree_span_provider,
             range_check_4_3::Eval {
-                claim: range_check_4_3::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_4_3"),
+                claim: range_check_4_3::Claim { log_size: range_check_4_3::LOG_SIZE },
                 range_check_4_3_lookup_elements: interaction_elements.rc_4_3.clone(),
             },
             interaction_claim.rc_4_3.claimed_sum,
@@ -450,7 +465,8 @@ impl RangeChecksComponents {
         let rc_4_4_component = range_check_4_4::Component::new(
             tree_span_provider,
             range_check_4_4::Eval {
-                claim: range_check_4_4::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_4_4"),
+                claim: range_check_4_4::Claim { log_size: range_check_4_4::LOG_SIZE },
                 range_check_4_4_lookup_elements: interaction_elements.rc_4_4.clone(),
             },
             interaction_claim.rc_4_4.claimed_sum,
@@ -458,7 +474,8 @@ impl RangeChecksComponents {
         let rc_5_4_component = range_check_5_4::Component::new(
             tree_span_provider,
             range_check_5_4::Eval {
-                claim: range_check_5_4::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_5_4"),
+                claim: range_check_5_4::Claim { log_size: range_check_5_4::LOG_SIZE },
                 range_check_5_4_lookup_elements: interaction_elements.rc_5_4.clone(),
             },
             interaction_claim.rc_5_4.claimed_sum,
@@ -466,7 +483,8 @@ impl RangeChecksComponents {
         let rc_9_9_component = range_check_9_9::Component::new(
             tree_span_provider,
             range_check_9_9::Eval {
-                claim: range_check_9_9::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_9_9"),
+                claim: range_check_9_9::Claim { log_size: range_check_9_9::LOG_SIZE },
                 range_check_9_9_lookup_elements: interaction_elements.rc_9_9.clone(),
             },
             interaction_claim.rc_9_9.claimed_sum,
@@ -474,7 +492,8 @@ impl RangeChecksComponents {
         let rc_9_9_b_component = range_check_9_9_b::Component::new(
             tree_span_provider,
             range_check_9_9_b::Eval {
-                claim: range_check_9_9_b::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_9_9_b"),
+                claim: range_check_9_9_b::Claim { log_size: range_check_9_9_b::LOG_SIZE },
                 range_check_9_9_b_lookup_elements: interaction_elements.rc_9_9_b.clone(),
             },
             interaction_claim.rc_9_9_b.claimed_sum,
@@ -482,7 +501,8 @@ impl RangeChecksComponents {
         let rc_9_9_c_component = range_check_9_9_c::Component::new(
             tree_span_provider,
             range_check_9_9_c::Eval {
-                claim: range_check_9_9_c::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_9_9_c"),
+                claim: range_check_9_9_c::Claim { log_size: range_check_9_9_c::LOG_SIZE },
                 range_check_9_9_c_lookup_elements: interaction_elements.rc_9_9_c.clone(),
             },
             interaction_claim.rc_9_9_c.claimed_sum,
@@ -490,7 +510,8 @@ impl RangeChecksComponents {
         let rc_9_9_d_component = range_check_9_9_d::Component::new(
             tree_span_provider,
             range_check_9_9_d::Eval {
-                claim: range_check_9_9_d::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_9_9_d"),
+                claim: range_check_9_9_d::Claim { log_size: range_check_9_9_d::LOG_SIZE },
                 range_check_9_9_d_lookup_elements: interaction_elements.rc_9_9_d.clone(),
             },
             interaction_claim.rc_9_9_d.claimed_sum,
@@ -498,7 +519,8 @@ impl RangeChecksComponents {
         let rc_9_9_e_component = range_check_9_9_e::Component::new(
             tree_span_provider,
             range_check_9_9_e::Eval {
-                claim: range_check_9_9_e::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_9_9_e"),
+                claim: range_check_9_9_e::Claim { log_size: range_check_9_9_e::LOG_SIZE },
                 range_check_9_9_e_lookup_elements: interaction_elements.rc_9_9_e.clone(),
             },
             interaction_claim.rc_9_9_e.claimed_sum,
@@ -506,7 +528,8 @@ impl RangeChecksComponents {
         let rc_9_9_f_component = range_check_9_9_f::Component::new(
             tree_span_provider,
             range_check_9_9_f::Eval {
-                claim: range_check_9_9_f::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_9_9_f"),
+                claim: range_check_9_9_f::Claim { log_size: range_check_9_9_f::LOG_SIZE },
                 range_check_9_9_f_lookup_elements: interaction_elements.rc_9_9_f.clone(),
             },
             interaction_claim.rc_9_9_f.claimed_sum,
@@ -514,7 +537,8 @@ impl RangeChecksComponents {
         let rc_9_9_g_component = range_check_9_9_g::Component::new(
             tree_span_provider,
             range_check_9_9_g::Eval {
-                claim: range_check_9_9_g::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_9_9_g"),
+                claim: range_check_9_9_g::Claim { log_size: range_check_9_9_g::LOG_SIZE },
                 range_check_9_9_g_lookup_elements: interaction_elements.rc_9_9_g.clone(),
             },
             interaction_claim.rc_9_9_g.claimed_sum,
@@ -522,7 +546,8 @@ impl RangeChecksComponents {
         let rc_9_9_h_component = range_check_9_9_h::Component::new(
             tree_span_provider,
             range_check_9_9_h::Eval {
-                claim: range_check_9_9_h::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_9_9_h"),
+                claim: range_check_9_9_h::Claim { log_size: range_check_9_9_h::LOG_SIZE },
                 range_check_9_9_h_lookup_elements: interaction_elements.rc_9_9_h.clone(),
             },
             interaction_claim.rc_9_9_h.claimed_sum,
@@ -530,7 +555,8 @@ impl RangeChecksComponents {
         let rc_7_2_5_component = range_check_7_2_5::Component::new(
             tree_span_provider,
             range_check_7_2_5::Eval {
-                claim: range_check_7_2_5::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_7_2_5"),
+                claim: range_check_7_2_5::Claim { log_size: range_check_7_2_5::LOG_SIZE },
                 range_check_7_2_5_lookup_elements: interaction_elements.rc_7_2_5.clone(),
             },
             interaction_claim.rc_7_2_5.claimed_sum,
@@ -538,7 +564,8 @@ impl RangeChecksComponents {
         let rc_3_6_6_3_component = range_check_3_6_6_3::Component::new(
             tree_span_provider,
             range_check_3_6_6_3::Eval {
-                claim: range_check_3_6_6_3::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_3_6_6_3"),
+                claim: range_check_3_6_6_3::Claim { log_size: range_check_3_6_6_3::LOG_SIZE },
                 range_check_3_6_6_3_lookup_elements: interaction_elements.rc_3_6_6_3.clone(),
             },
             interaction_claim.rc_3_6_6_3.claimed_sum,
@@ -546,7 +573,8 @@ impl RangeChecksComponents {
         let rc_4_4_4_4_component = range_check_4_4_4_4::Component::new(
             tree_span_provider,
             range_check_4_4_4_4::Eval {
-                claim: range_check_4_4_4_4::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_4_4_4_4"),
+                claim: range_check_4_4_4_4::Claim { log_size: range_check_4_4_4_4::LOG_SIZE },
                 range_check_4_4_4_4_lookup_elements: interaction_elements.rc_4_4_4_4.clone(),
             },
             interaction_claim.rc_4_4_4_4.claimed_sum,
@@ -554,7 +582,8 @@ impl RangeChecksComponents {
         let rc_3_3_3_3_3_component = range_check_3_3_3_3_3::Component::new(
             tree_span_provider,
             range_check_3_3_3_3_3::Eval {
-                claim: range_check_3_3_3_3_3::Claim {},
+                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_3_3_3_3_3"),
+                claim: range_check_3_3_3_3_3::Claim { log_size: range_check_3_3_3_3_3::LOG_SIZE },
                 range_check_3_3_3_3_3_lookup_elements: interaction_elements.rc_3_3_3_3_3.clone(),
             },
             interaction_claim.rc_3_3_3_3_3.claimed_sum,

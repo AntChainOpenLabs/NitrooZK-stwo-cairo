@@ -23,7 +23,9 @@ pub const RELATION_USES_PER_ROW: [RelationUse; 4] = [
     },
 ];
 
+#[repr(C)]
 pub struct Eval {
+    pub eval_id: u32,
     pub claim: Claim,
     pub verify_instruction_lookup_elements: relations::VerifyInstruction,
     pub memory_address_to_id_lookup_elements: relations::MemoryAddressToId,
@@ -253,6 +255,7 @@ mod tests {
     fn add_opcode_small_constraints_regression() {
         let mut rng = SmallRng::seed_from_u64(0);
         let eval = Eval {
+            eval_id: 0,  // Use 0 for non-CUDA tests
             claim: Claim { log_size: 4 },
             verify_instruction_lookup_elements: relations::VerifyInstruction::dummy(),
             memory_address_to_id_lookup_elements: relations::MemoryAddressToId::dummy(),

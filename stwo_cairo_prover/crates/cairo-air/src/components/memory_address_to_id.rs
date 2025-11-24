@@ -29,7 +29,9 @@ pub const N_TRACE_COLUMNS: usize = MEMORY_ADDRESS_TO_ID_SPLIT * N_ID_AND_MULT_CO
 pub type Component = FrameworkComponent<Eval>;
 
 #[derive(Clone)]
+#[repr(C)]
 pub struct Eval {
+    pub eval_id: u32,
     // The log size of the component after split.
     pub log_size: u32,
     pub lookup_elements: relations::MemoryAddressToId,
@@ -37,6 +39,7 @@ pub struct Eval {
 impl Eval {
     pub fn new(claim: Claim, lookup_elements: relations::MemoryAddressToId) -> Self {
         Self {
+            eval_id: 0,  // Will be set by caller
             log_size: claim.log_size,
             lookup_elements,
         }
@@ -113,8 +116,10 @@ mod tests {
 
     #[test]
     fn memory_address_to_id_constraints_regression() {
+        use stwo_constraint_framework::fnv1a_eval_id_gen;
         let mut rng = SmallRng::seed_from_u64(0);
         let eval = Eval {
+            eval_id: fnv1a_eval_id_gen("memory_address_to_id"),
             log_size: 4,
             lookup_elements: relations::MemoryAddressToId::dummy(),
         };

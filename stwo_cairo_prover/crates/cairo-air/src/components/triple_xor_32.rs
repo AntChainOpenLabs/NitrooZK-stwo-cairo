@@ -16,7 +16,9 @@ pub const RELATION_USES_PER_ROW: [RelationUse; 2] = [
     },
 ];
 
+#[repr(C)]
 pub struct Eval {
+    pub eval_id: u32,
     pub claim: Claim,
     pub verify_bitwise_xor_8_lookup_elements: relations::VerifyBitwiseXor_8,
     pub verify_bitwise_xor_8_b_lookup_elements: relations::VerifyBitwiseXor_8_B,
@@ -222,6 +224,7 @@ mod tests {
     use rand::{Rng, SeedableRng};
     use stwo::core::fields::qm31::QM31;
     use stwo_constraint_framework::expr::ExprEvaluator;
+    use stwo_constraint_framework::fnv1a_eval_id_gen;
 
     use super::*;
     use crate::components::constraints_regression_test_values::TRIPLE_XOR_32;
@@ -230,6 +233,7 @@ mod tests {
     fn triple_xor_32_constraints_regression() {
         let mut rng = SmallRng::seed_from_u64(0);
         let eval = Eval {
+            eval_id: fnv1a_eval_id_gen("triple_xor_32"),
             claim: Claim { log_size: 4 },
             verify_bitwise_xor_8_lookup_elements: relations::VerifyBitwiseXor_8::dummy(),
             verify_bitwise_xor_8_b_lookup_elements: relations::VerifyBitwiseXor_8_B::dummy(),

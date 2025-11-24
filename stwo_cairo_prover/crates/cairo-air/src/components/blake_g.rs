@@ -34,7 +34,9 @@ pub const RELATION_USES_PER_ROW: [RelationUse; 6] = [
     },
 ];
 
+#[repr(C)]
 pub struct Eval {
+    pub eval_id: u32,
     pub claim: Claim,
     pub verify_bitwise_xor_8_lookup_elements: relations::VerifyBitwiseXor_8,
     pub verify_bitwise_xor_8_b_lookup_elements: relations::VerifyBitwiseXor_8_B,
@@ -330,6 +332,7 @@ mod tests {
     fn blake_g_constraints_regression() {
         let mut rng = SmallRng::seed_from_u64(0);
         let eval = Eval {
+            eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("blake_g"),
             claim: Claim { log_size: 4 },
             verify_bitwise_xor_8_lookup_elements: relations::VerifyBitwiseXor_8::dummy(),
             verify_bitwise_xor_8_b_lookup_elements: relations::VerifyBitwiseXor_8_B::dummy(),

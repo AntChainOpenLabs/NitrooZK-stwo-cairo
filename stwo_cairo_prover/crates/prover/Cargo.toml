@@ -39,6 +39,7 @@ tracing.workspace = true
 [dev-dependencies]
 dev-utils.workspace = true
 cairo-vm = { workspace = true, default-features = true }
+cairo-lang-casm.workspace = true
 tempfile = "3.19.1"
 test-log = { version = "0.2.17", features = ["trace"] }
 tracing-subscriber.workspace = true

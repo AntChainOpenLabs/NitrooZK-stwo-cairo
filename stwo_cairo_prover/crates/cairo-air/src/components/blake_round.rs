@@ -30,7 +30,9 @@ pub const RELATION_USES_PER_ROW: [RelationUse; 6] = [
     },
 ];
 
+#[repr(C)]
 pub struct Eval {
+    pub eval_id: u32,
     pub claim: Claim,
     pub blake_round_sigma_lookup_elements: relations::BlakeRoundSigma,
     pub range_check_7_2_5_lookup_elements: relations::RangeCheck_7_2_5,
@@ -847,8 +849,10 @@ mod tests {
 
     #[test]
     fn blake_round_constraints_regression() {
+        use stwo_constraint_framework::fnv1a_eval_id_gen;
         let mut rng = SmallRng::seed_from_u64(0);
         let eval = Eval {
+            eval_id: fnv1a_eval_id_gen("blake_round"),
             claim: Claim { log_size: 4 },
             blake_round_sigma_lookup_elements: relations::BlakeRoundSigma::dummy(),
             range_check_7_2_5_lookup_elements: relations::RangeCheck_7_2_5::dummy(),

@@ -5,7 +5,9 @@ pub const N_TRACE_COLUMNS: usize = 1;
 pub const LOG_SIZE: u32 = 4;
 pub const RELATION_USES_PER_ROW: [RelationUse; 0] = [];
 
+#[repr(C)]
 pub struct Eval {
+    pub eval_id: u32,
     pub claim: Claim,
     pub blake_round_sigma_lookup_elements: relations::BlakeRoundSigma,
 }
@@ -108,8 +110,10 @@ mod tests {
 
     #[test]
     fn blake_round_sigma_constraints_regression() {
+        use stwo_constraint_framework::fnv1a_eval_id_gen;
         let mut rng = SmallRng::seed_from_u64(0);
         let eval = Eval {
+            eval_id: fnv1a_eval_id_gen("blake_round_sigma"),
             claim: Claim {},
             blake_round_sigma_lookup_elements: relations::BlakeRoundSigma::dummy(),
         };
