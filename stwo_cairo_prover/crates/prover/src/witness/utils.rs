@@ -43,7 +43,32 @@ impl AtomicMultiplicityColumn {
     }
 
     pub fn increase_at(&self, address: u32) {
+        if address as usize >= self.data.len() {
+            panic!(
+                "increase_at: address {} out of bounds (len={})",
+                address, self.data.len()
+            );
+        }
         self.data[address as usize].fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Returns the raw multiplicity data as a vector of u32 values.
+    /// This method does not consume self, allowing the data to be read
+    /// while still allowing further modifications.
+    pub fn get_raw_data(&self) -> Vec<u32> {
+        self.data
+            .iter()
+            .map(|a| a.load(Ordering::Relaxed))
+            .collect()
+    }
+
+    /// Merges external multiplicities (from CUDA) into this column.
+    /// Each element in `external_mults` is added to the corresponding element in this column.
+    pub fn merge_external_multiplicities(&self, external_mults: &[u32]) {
+        let min_len = std::cmp::min(self.data.len(), external_mults.len());
+        for i in 0..min_len {
+            self.data[i].fetch_add(external_mults[i], Ordering::Relaxed);
+        }
     }
 
     /// Returns the internal data as a Vec<PackedM31>. The last element of the vector is padded with

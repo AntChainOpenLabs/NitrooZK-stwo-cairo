@@ -103,7 +103,6 @@ impl CudaClaimGenerator {
     }
 
     pub fn add_packed_inputs(&mut self, packed_inputs: &[PackedInputType]) {
-        // println!("packed_inputs: {:?}", packed_inputs);
 
         self.packed_inputs = (0..6)
             .map(|i| {
@@ -118,7 +117,6 @@ impl CudaClaimGenerator {
             .expect("Inputs should have exactly 6 elements");
 
         // for i in 0..self.packed_inputs.len() {
-        //     println!("self.packed_inputs[{}]: {:?}", i, self.packed_inputs[i].to_vec());
         // }
         self.size = self.packed_inputs[0].size as u32;
      }
@@ -291,7 +289,6 @@ impl CudaInteractionClaimGenerator {
         verify_bitwise_xor_8: &relations::VerifyBitwiseXor_8,
         verify_bitwise_xor_9: &relations::VerifyBitwiseXor_9,
     ) -> InteractionClaim {
-        // println!("writing interaction trace, self.n_rows: {}", self.n_rows);
         let trace_log_size = self.log_size;
 
         let cuda_claimed_sum = BaseFieldVec::new_uninitialized(4);
@@ -383,6 +380,7 @@ impl CudaInteractionClaimGenerator {
 
 #[cfg(test)]
 pub mod tests {
+    use stwo_constraint_framework::fnv1a_eval_id_gen;
     use stwo_cairo_common::prover_types::cpu::M31;
     use stwo::core::pcs::TreeVec;
     use test_log::test;
@@ -408,7 +406,6 @@ pub mod tests {
 
     use stwo_constraint_framework::TraceLocationAllocator;
     use stwo_constraint_framework::FrameworkComponent;
-    use stwo_constraint_framework::fnv1a_eval_id_gen;
     use crate::debug_tools::assert_constraints::assert_component;
     use cairo_air::components::blake_g::Eval;
     use crate::witness::components_cuda::blake_g_cuda::PackedInputType;
@@ -454,7 +451,6 @@ pub mod tests {
             let verify_bitwise_xor_9_relation = relations::VerifyBitwiseXor_9::dummy();
             let verify_bitwise_xor_12_relation = relations::VerifyBitwiseXor_12::dummy();
 
-            // println!("input {:?}", input);
             blake_g.add_packed_inputs(&packed_inputs);
 
             let mut mock_commitment_scheme = MockCommitmentScheme::default();
@@ -480,7 +476,6 @@ pub mod tests {
             println!("CPU log_n:{}, base trace gen time: {:?}", blake_g_claim.log_size, start.elapsed());
             mock_tree_builder.finalize_interaction();
 
-            // println!("blake_g_claim: {:?}", blake_g_claim.log_size);
             // Interaction trace.
             let mut mock_tree_builder = mock_commitment_scheme.tree_builder();
             let start = std::time::Instant::now();
@@ -499,19 +494,16 @@ pub mod tests {
             let trace = mock_commitment_scheme.trace_domain_evaluations();
 
             // for i in 0..trace[1].len() {
-            //     println!("cpu base traces[{}]: {:?}", i, trace[1][i].to_vec());
             // }
 
             // for i in 0..trace[2].len() {
-            //     println!("cpu interaction traces[{}]: {:?}", i, trace[2][i].to_vec());
             // }
-            // println!("blake_g_interaction_claim.claimed_sum: {:?}", blake_g_interaction_claim.claimed_sum);
 
             let tree_span_provider = &mut TraceLocationAllocator::default();
             let component = FrameworkComponent::new(
                 tree_span_provider,
                 Eval {
-                    eval_id: fnv1a_eval_id_gen("blake_g"),
+                eval_id: fnv1a_eval_id_gen("blake_g"),
                     claim: blake_g_claim,
                     verify_bitwise_xor_8_lookup_elements: relations::VerifyBitwiseXor_8::dummy(),
                     verify_bitwise_xor_8_b_lookup_elements: relations::VerifyBitwiseXor_8_B::dummy(),
@@ -626,7 +618,6 @@ pub mod tests {
 
         assert_component(&component, &cuda_trace_to_cpu)
 
-        // println!("blake_g_interaction_claim.claimed_sum: {:?}", blake_g_interaction_claim.claimed_sum);
 
     }
 
@@ -645,7 +636,6 @@ pub mod tests {
                     })
                 })
                 .collect();
-            // println!("packed_inputs: {:?}", packed_inputs);
 
             let mut blake_g_cuda = blake_g_cuda::CudaClaimGenerator::new();
             let verify_bitwise_xor_4_trace_generator = verify_bitwise_xor_4_cuda::CudaClaimGenerator::new();
@@ -661,7 +651,6 @@ pub mod tests {
             let verify_bitwise_xor_9_relation = relations::VerifyBitwiseXor_9::dummy();
             let verify_bitwise_xor_12_relation = relations::VerifyBitwiseXor_12::dummy();
 
-            // println!("input {:?}", input);
             blake_g_cuda.add_packed_inputs(&packed_inputs);
 
             let mut mock_commitment_scheme = MockCommitmentScheme::default();
@@ -714,7 +703,7 @@ pub mod tests {
             let component = FrameworkComponent::new(
                 tree_span_provider,
                 Eval {
-                    eval_id: fnv1a_eval_id_gen("blake_g"),
+                eval_id: fnv1a_eval_id_gen("blake_g"),
                     claim: blake_g_claim,
                     verify_bitwise_xor_8_lookup_elements: relations::VerifyBitwiseXor_8::dummy(),
                     verify_bitwise_xor_8_b_lookup_elements: relations::VerifyBitwiseXor_8_B::dummy(),
@@ -787,7 +776,6 @@ pub mod tests {
         );
         mock_tree_builder.finalize_interaction();
 
-        // println!("blake_g_claim.log_size: {:?}", blake_g_claim.log_size);
         // Interaction trace.
         let mut mock_tree_builder = mock_commitment_scheme.tree_builder();
         let blake_g_interaction_claim = blake_g_interaction_gen.write_interaction_trace(
@@ -804,17 +792,13 @@ pub mod tests {
         let trace = mock_commitment_scheme.trace_domain_evaluations();
 
         // for i in 0..trace[0].len() {
-        //     println!("cpu precompute traces[{}]: {:?}", i, trace[0][i].to_vec());
         // }
 
         // for i in 0..trace[1].len() {
-        //     println!("cpu base traces[{}]: {:?}", i, trace[1][i].to_vec());
         // }
 
         // for i in 0..trace[2].len() {
-        //     println!("cpu interaction traces[{}]: {:?}", i, trace[2][i].to_vec());
         // }
-        // println!("cpu blake_g_interaction_claim.claimed_sum: {:?}", blake_g_interaction_claim.claimed_sum);
 
         let trace0_vec: Vec<_> = trace[0].clone().into_iter().map(|eval| BaseFieldVec::from_vec(eval.to_cpu().to_vec())).collect();
         let trace1_vec: Vec<_> = trace[1].clone().into_iter().map(|eval| BaseFieldVec::from_vec(eval.to_cpu().to_vec())).collect();
@@ -890,7 +874,6 @@ pub mod tests {
             );
         }
 
-        // println!("blake_g_interaction_claim.claimed_sum: {:?}", blake_g_interaction_claim.claimed_sum);
     }
 
 
@@ -942,7 +925,6 @@ pub mod tests {
         );
         mock_tree_builder.finalize_interaction();
 
-        // println!("blake_g_claim: {:?}", blake_g_claim.log_siz);
         // Interaction trace.
         let mut mock_tree_builder = mock_commitment_scheme.tree_builder();
         let blake_g_interaction_claim = blake_g_interaction_gen.write_interaction_trace(
@@ -958,15 +940,12 @@ pub mod tests {
         let trace = mock_commitment_scheme.trace_domain_evaluations();
 
         // for i in 0..trace[0].len() {
-        //     println!("cuda precompute traces[{}]: {:?}", i, trace[0][i].to_vec());
         // }
 
         // for i in 0..trace[1].len() {
-        //     println!("cuda base traces[{}]: {:?}", i, trace[1][i].to_vec());
         // }
 
         // for i in 0..trace[2].len() {
-        //     println!("cuda interaction traces[{}]: {:?}", i, trace[2][i].to_vec());
         // }
         println!("cuda blake_g_interaction_claim.claimed_sum: {:?}", blake_g_interaction_claim.claimed_sum);
 
@@ -1017,8 +996,6 @@ pub mod tests {
             blake_g_interaction_claim.claimed_sum,
         );
 
-        // println!("component n_constraints: {:?}", component.info.n_constraints);
-        // println!(
         //     "component logup_counts: {:?}, sum:{:?}",
         //     component.info.logup_counts,
         //     component.info.logup_counts.iter().map(|(_, &count)| count).sum::<usize>()
@@ -1051,7 +1028,6 @@ pub mod tests {
             );
         }
 
-        // println!("blake_g_interaction_claim.claimed_sum: {:?}", blake_g_interaction_claim.claimed_sum);
     }
 
 
@@ -1115,7 +1091,6 @@ pub mod tests {
             println!("blake_g_cuda log_n:{} write_trace time: {:?}", blake_g_claim.log_size, start.elapsed());
             mock_tree_builder.finalize_interaction();
 
-            // println!("blake_g_claim: {:?}", blake_g_claim.log_siz);
             // Interaction trace.
             let mut mock_tree_builder = mock_commitment_scheme.tree_builder();
             let start = std::time::Instant::now();
@@ -1167,7 +1142,7 @@ pub mod tests {
             let component = FrameworkComponent::new(
                 tree_span_provider,
                 Eval {
-                    eval_id: fnv1a_eval_id_gen("blake_g"),
+                eval_id: fnv1a_eval_id_gen("blake_g"),
                     claim: blake_g_claim,
                     verify_bitwise_xor_8_lookup_elements: relations::VerifyBitwiseXor_8::dummy(),
                     verify_bitwise_xor_8_b_lookup_elements: relations::VerifyBitwiseXor_8_B::dummy(),

@@ -118,6 +118,29 @@ impl ClaimGenerator {
         self.multiplicities.increase_at(addr.0 - 1);
     }
 
+    /// Returns the maximum valid address (memory size).
+    /// Addresses must be in range [1, memory_size] inclusive.
+    pub fn memory_size(&self) -> u32 {
+        self.address_to_raw_id.len() as u32
+    }
+
+    /// Returns the raw multiplicities data for merging with CUDA.
+    pub fn get_multiplicities(&self) -> Vec<u32> {
+        self.multiplicities.get_raw_data()
+    }
+
+    /// Merges external multiplicities (e.g., from CUDA) into this generator.
+    /// This should be called before write_trace() to ensure all multiplicities are included.
+    pub fn merge_multiplicities(&self, external_mults: &[u32]) {
+        let min_len = std::cmp::min(self.multiplicities.get_raw_data().len(), external_mults.len());
+        for i in 0..min_len {
+            // Add external multiplicity by calling increase_at multiple times
+            for _ in 0..external_mults[i] {
+                self.multiplicities.increase_at(i as u32);
+            }
+        }
+    }
+
     pub fn write_trace(
         mut self,
         tree_builder: &mut impl TreeBuilder<SimdBackend>,

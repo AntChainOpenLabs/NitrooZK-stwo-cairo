@@ -1,8 +1,9 @@
 use num_traits::Zero;
 use stwo::core::fields::qm31::QM31;
+use stwo::prover::backend::cuda::CudaBackend;
 use stwo::prover::backend::simd::SimdBackend;
 use stwo::prover::ComponentProver;
-use stwo_constraint_framework::TraceLocationAllocator;
+use stwo_constraint_framework::{fnv1a_eval_id_gen, TraceLocationAllocator};
 
 use crate::air::{accumulate_relation_uses, CairoInteractionElements, RelationUsesDict};
 use crate::components::prelude::*;
@@ -171,6 +172,14 @@ impl PoseidonContextComponents {
             .map(|c| c.provers())
             .unwrap_or_default()
     }
+
+    
+    pub fn provers_cuda(&self) -> Vec<&dyn ComponentProver<CudaBackend>> {
+        self.components
+            .as_ref()
+            .map(|c| c.provers_cuda())
+            .unwrap_or_default()
+    }
 }
 
 impl std::fmt::Display for PoseidonContextComponents {
@@ -200,6 +209,7 @@ impl Components {
             poseidon_3_partial_rounds_chain::Component::new(
                 tree_span_provider,
                 poseidon_3_partial_rounds_chain::Eval {
+                    eval_id: fnv1a_eval_id_gen("poseidon_3_partial_rounds_chain"),
                     claim: claim
                         .claim
                         .as_ref()
@@ -231,6 +241,7 @@ impl Components {
         let poseidon_full_round_chain_component = poseidon_full_round_chain::Component::new(
             tree_span_provider,
             poseidon_full_round_chain::Eval {
+                eval_id: fnv1a_eval_id_gen("poseidon_full_round_chain"),
                 claim: claim.claim.as_ref().unwrap().poseidon_full_round_chain,
                 cube_252_lookup_elements: interaction_elements.cube_252.clone(),
                 poseidon_full_round_chain_lookup_elements: interaction_elements
@@ -249,6 +260,7 @@ impl Components {
         let cube_252_component = cube_252::Component::new(
             tree_span_provider,
             cube_252::Eval {
+                eval_id: fnv1a_eval_id_gen("cube_252"),
                 claim: claim.claim.as_ref().unwrap().cube_252,
                 cube_252_lookup_elements: interaction_elements.cube_252.clone(),
                 range_check_19_lookup_elements: interaction_elements.range_checks.rc_19.clone(),
@@ -294,6 +306,7 @@ impl Components {
         let poseidon_round_keys_component = poseidon_round_keys::Component::new(
             tree_span_provider,
             poseidon_round_keys::Eval {
+                eval_id: fnv1a_eval_id_gen("poseidon_round_keys"),
                 claim: claim.claim.as_ref().unwrap().poseidon_round_keys,
                 poseidon_round_keys_lookup_elements: interaction_elements
                     .poseidon_round_keys
@@ -304,6 +317,7 @@ impl Components {
         let range_check_felt_252_width_27_component = range_check_felt_252_width_27::Component::new(
             tree_span_provider,
             range_check_felt_252_width_27::Eval {
+                eval_id: fnv1a_eval_id_gen("range_check_felt_252_width_27"),
                 claim: claim.claim.as_ref().unwrap().range_check_felt_252_width_27,
                 range_check_felt_252_width_27_lookup_elements: (interaction_elements
                     .range_check_felt_252_width_27
@@ -343,6 +357,16 @@ impl Components {
     }
 
     pub fn provers(&self) -> Vec<&dyn ComponentProver<SimdBackend>> {
+        vec![
+            &self.poseidon_3_partial_rounds_chain,
+            &self.poseidon_full_round_chain,
+            &self.cube_252,
+            &self.poseidon_round_keys,
+            &self.range_check_felt_252_width_27,
+        ]
+    }
+
+    pub fn provers_cuda(&self) -> Vec<&dyn ComponentProver<CudaBackend>> {
         vec![
             &self.poseidon_3_partial_rounds_chain,
             &self.poseidon_full_round_chain,

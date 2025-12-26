@@ -23,7 +23,9 @@ pub const RELATION_USES_PER_ROW: [RelationUse; 4] = [
     },
 ];
 
+#[repr(C)]
 pub struct Eval {
+    pub eval_id: u32,
     pub claim: Claim,
     pub range_check_7_2_5_lookup_elements: relations::RangeCheck_7_2_5,
     pub range_check_4_3_lookup_elements: relations::RangeCheck_4_3,
@@ -33,6 +35,7 @@ pub struct Eval {
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, CairoSerialize, CairoDeserialize)]
+#[repr(C)]
 pub struct Claim {
     pub log_size: u32,
 }
@@ -185,6 +188,7 @@ mod tests {
     fn verify_instruction_constraints_regression() {
         let mut rng = SmallRng::seed_from_u64(0);
         let eval = Eval {
+            eval_id: 0,
             claim: Claim { log_size: 4 },
             range_check_7_2_5_lookup_elements: relations::RangeCheck_7_2_5::dummy(),
             range_check_4_3_lookup_elements: relations::RangeCheck_4_3::dummy(),

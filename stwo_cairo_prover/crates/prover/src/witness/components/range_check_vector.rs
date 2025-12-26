@@ -63,6 +63,13 @@ macro_rules! range_check_prover {
                     }
                 }
 
+                /// Merges external multiplicities (from CUDA generators) into this generator.
+                /// This allows CUDA-accelerated opcodes to accumulate multiplicities on GPU,
+                /// then merge them before trace generation.
+                pub fn merge_cuda_multiplicities(&self, cuda_mults: &[u32]) {
+                    self.multiplicities.merge_external_multiplicities(cuda_mults);
+                }
+
                 pub fn write_trace(
                     self,
                     tree_builder: &mut impl TreeBuilder<SimdBackend>,
@@ -80,7 +87,7 @@ macro_rules! range_check_prover {
 
                     tree_builder.extend_evals(trace);
 
-                    let claim = Claim { log_size };
+                    let claim = Claim {};
 
                     let interaction_claim_prover = InteractionClaimGenerator {
                         multiplicities: multiplicity_data,
@@ -272,8 +279,8 @@ mod tests {
         let component = FrameworkComponent::new(
             tree_span_provider,
             Eval {
-                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("range_check_7_2_5"),
-                claim: Claim { log_size: LOG_HEIGHT },
+                eval_id: 0,
+                claim: Claim {},
                 range_check_7_2_5_lookup_elements: lookup_elements,
             },
             interaction_claim.claimed_sum,

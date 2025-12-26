@@ -597,6 +597,7 @@ mod tests {
     use stwo_cairo_adapter::memory::{
         value_from_felt252, MemoryBuilder, MemoryConfig, MemoryValue,
     };
+    use stwo_cairo_common::fnv1a_eval_id_gen;
     use stwo_cairo_common::memory::N_M31_IN_FELT252;
     use stwo_cairo_common::prover_types::felt::split_f252;
     use stwo_constraint_framework::TraceLocationAllocator;
@@ -683,6 +684,7 @@ mod tests {
 
         let mut location_allocator = TraceLocationAllocator::default();
         let big_components = memory_id_to_big::big_components_from_claim(
+            fnv1a_eval_id_gen("memory_id_to_big_big_eval"),
             &claim.big_log_sizes,
             &interaction_claim.big_claimed_sums,
             &interaction_elements.memory_id_to_value,
@@ -699,14 +701,15 @@ mod tests {
 
         let small_component = memory_id_to_big::SmallComponent::new(
             &mut location_allocator,
-            SmallEval {
-                log_n_rows: claim.small_log_size,
-                lookup_elements: interaction_elements.memory_id_to_value.clone(),
-                range_check_9_9_relation: interaction_elements.range_checks.rc_9_9.clone(),
-                range_check_9_9_b_relation: interaction_elements.range_checks.rc_9_9_b.clone(),
-                range_check_9_9_c_relation: interaction_elements.range_checks.rc_9_9_c.clone(),
-                range_check_9_9_d_relation: interaction_elements.range_checks.rc_9_9_d.clone(),
-            },
+            SmallEval::new(
+                fnv1a_eval_id_gen("memory_id_to_big_small_eval"),
+                claim.clone(),
+                interaction_elements.memory_id_to_value.clone(),
+                interaction_elements.range_checks.rc_9_9.clone(),
+                interaction_elements.range_checks.rc_9_9_b.clone(),
+                interaction_elements.range_checks.rc_9_9_c.clone(),
+                interaction_elements.range_checks.rc_9_9_d.clone(),
+            ),
             interaction_claim.small_claimed_sum,
         );
 

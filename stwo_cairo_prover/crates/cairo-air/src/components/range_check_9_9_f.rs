@@ -14,13 +14,11 @@ pub struct Eval {
 
 #[derive(Copy, Clone, Serialize, Deserialize, CairoSerialize, CairoDeserialize)]
 #[repr(C)]
-pub struct Claim {
-    pub log_size: u32,
-}
+pub struct Claim {}
 impl Claim {
     pub fn log_sizes(&self) -> TreeVec<Vec<u32>> {
-        let trace_log_sizes = vec![self.log_size; N_TRACE_COLUMNS];
-        let interaction_log_sizes = vec![self.log_size; SECURE_EXTENSION_DEGREE];
+        let trace_log_sizes = vec![LOG_SIZE; N_TRACE_COLUMNS];
+        let interaction_log_sizes = vec![LOG_SIZE; SECURE_EXTENSION_DEGREE];
         TreeVec::new(vec![vec![], trace_log_sizes, interaction_log_sizes])
     }
 
@@ -41,7 +39,7 @@ pub type Component = FrameworkComponent<Eval>;
 
 impl FrameworkEval for Eval {
     fn log_size(&self) -> u32 {
-        self.claim.log_size
+        LOG_SIZE
     }
 
     fn max_constraint_log_degree_bound(&self) -> u32 {
@@ -74,7 +72,6 @@ mod tests {
     use rand::{Rng, SeedableRng};
     use stwo::core::fields::qm31::QM31;
     use stwo_constraint_framework::expr::ExprEvaluator;
-    use stwo_constraint_framework::fnv1a_eval_id_gen;
 
     use super::*;
     use crate::components::constraints_regression_test_values::RANGE_CHECK_9_9_F;
@@ -83,8 +80,8 @@ mod tests {
     fn range_check_9_9_f_constraints_regression() {
         let mut rng = SmallRng::seed_from_u64(0);
         let eval = Eval {
-            eval_id: fnv1a_eval_id_gen("range_check_9_9_F"),
-            claim: Claim { log_size: LOG_SIZE },
+            eval_id: 0,
+            claim: Claim {},
             range_check_9_9_f_lookup_elements: relations::RangeCheck_9_9_F::dummy(),
         };
         let expr_eval = eval.evaluate(ExprEvaluator::new());

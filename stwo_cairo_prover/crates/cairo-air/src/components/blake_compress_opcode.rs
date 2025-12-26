@@ -56,6 +56,7 @@ pub struct Eval {
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, CairoSerialize, CairoDeserialize)]
+#[repr(C)]
 pub struct Claim {
     pub log_size: u32,
 }
@@ -72,6 +73,7 @@ impl Claim {
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, CairoSerialize, CairoDeserialize)]
+#[repr(C)]
 pub struct InteractionClaim {
     pub claimed_sum: SecureField,
 }
@@ -721,7 +723,6 @@ mod tests {
     use rand::{Rng, SeedableRng};
     use stwo::core::fields::qm31::QM31;
     use stwo_constraint_framework::expr::ExprEvaluator;
-    use stwo_constraint_framework::fnv1a_eval_id_gen;
 
     use super::*;
     use crate::components::constraints_regression_test_values::BLAKE_COMPRESS_OPCODE;
@@ -730,7 +731,7 @@ mod tests {
     fn blake_compress_opcode_constraints_regression() {
         let mut rng = SmallRng::seed_from_u64(0);
         let eval = Eval {
-            eval_id: fnv1a_eval_id_gen("blake_compress_opcode"),
+            eval_id: 0,
             claim: Claim { log_size: 4 },
             verify_instruction_lookup_elements: relations::VerifyInstruction::dummy(),
             memory_address_to_id_lookup_elements: relations::MemoryAddressToId::dummy(),

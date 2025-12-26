@@ -48,6 +48,7 @@ pub struct Eval {
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, CairoSerialize, CairoDeserialize)]
+#[repr(C)]
 pub struct Claim {
     pub log_size: u32,
 }
@@ -332,7 +333,7 @@ mod tests {
     fn blake_g_constraints_regression() {
         let mut rng = SmallRng::seed_from_u64(0);
         let eval = Eval {
-            eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("blake_g"),
+            eval_id: 0,
             claim: Claim { log_size: 4 },
             verify_bitwise_xor_8_lookup_elements: relations::VerifyBitwiseXor_8::dummy(),
             verify_bitwise_xor_8_b_lookup_elements: relations::VerifyBitwiseXor_8_B::dummy(),

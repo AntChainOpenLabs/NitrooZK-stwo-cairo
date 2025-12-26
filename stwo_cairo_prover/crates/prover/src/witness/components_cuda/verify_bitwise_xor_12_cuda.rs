@@ -33,7 +33,6 @@ impl CudaClaimGenerator {
     }
 
     pub fn add_cuda_inputs(&self, cuda_inputs: &[CudaPackedInputType]) {
-        // println!("cuda_inputs verify_bitwise_xor_8_cuda inputs cols: {}, rows:{}, mults log_size:{}", cuda_inputs.len(), cuda_inputs[0][0].size, LOG_SIZE);
         let inputs_vec = cuda_inputs.iter()
             .flat_map(|row| row.iter().map(|x| x.device_ptr))
             .collect_vec();

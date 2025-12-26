@@ -43,6 +43,7 @@ pub struct Eval {
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, CairoSerialize, CairoDeserialize)]
+#[repr(C)]
 pub struct Claim {
     pub log_size: u32,
 }
@@ -849,10 +850,9 @@ mod tests {
 
     #[test]
     fn blake_round_constraints_regression() {
-        use stwo_constraint_framework::fnv1a_eval_id_gen;
         let mut rng = SmallRng::seed_from_u64(0);
         let eval = Eval {
-            eval_id: fnv1a_eval_id_gen("blake_round"),
+            eval_id: 0,
             claim: Claim { log_size: 4 },
             blake_round_sigma_lookup_elements: relations::BlakeRoundSigma::dummy(),
             range_check_7_2_5_lookup_elements: relations::RangeCheck_7_2_5::dummy(),

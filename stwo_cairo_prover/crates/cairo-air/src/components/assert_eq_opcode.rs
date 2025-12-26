@@ -29,6 +29,7 @@ pub struct Eval {
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, CairoSerialize, CairoDeserialize)]
+#[repr(C)]
 pub struct Claim {
     pub log_size: u32,
 }

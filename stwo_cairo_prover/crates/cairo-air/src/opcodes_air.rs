@@ -4,11 +4,11 @@ use serde::{Deserialize, Serialize};
 use stwo::core::channel::Channel;
 use stwo::core::fields::qm31::{SecureField, QM31};
 use stwo::core::pcs::TreeVec;
+use stwo::prover::backend::cuda::CudaBackend;
 use stwo::prover::backend::simd::SimdBackend;
 use stwo::prover::ComponentProver;
-use stwo_cairo_common::fnv1a_eval_id_gen;
 use stwo_cairo_serialize::{CairoDeserialize, CairoSerialize};
-use stwo_constraint_framework::TraceLocationAllocator;
+use stwo_constraint_framework::{fnv1a_eval_id_gen, TraceLocationAllocator};
 
 use super::air::CairoInteractionElements;
 use super::components::display_components;
@@ -313,7 +313,7 @@ impl OpcodeComponents {
                 add_opcode::Component::new(
                     tree_span_provider,
                     add_opcode::Eval {
-                        eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("add_opcode"),
+                        eval_id: fnv1a_eval_id_gen("add_opcode"),
                         claim,
                         memory_address_to_id_lookup_elements: interaction_elements
                             .memory_address_to_id
@@ -499,6 +499,7 @@ impl OpcodeComponents {
                 call_opcode::Component::new(
                     tree_span_provider,
                     call_opcode::Eval {
+                        eval_id: fnv1a_eval_id_gen("call_opcode"),
                         claim,
                         memory_address_to_id_lookup_elements: interaction_elements
                             .memory_address_to_id
@@ -523,6 +524,7 @@ impl OpcodeComponents {
                 call_opcode_rel_imm::Component::new(
                     tree_span_provider,
                     call_opcode_rel_imm::Eval {
+                        eval_id: fnv1a_eval_id_gen("call_opcode_rel_imm"),
                         claim,
                         memory_address_to_id_lookup_elements: interaction_elements
                             .memory_address_to_id
@@ -547,6 +549,7 @@ impl OpcodeComponents {
                 generic_opcode::Component::new(
                     tree_span_provider,
                     generic_opcode::Eval {
+                        eval_id: fnv1a_eval_id_gen("generic_opcode"),
                         claim,
                         memory_address_to_id_lookup_elements: interaction_elements
                             .memory_address_to_id
@@ -643,6 +646,7 @@ impl OpcodeComponents {
                 jnz_opcode::Component::new(
                     tree_span_provider,
                     jnz_opcode::Eval {
+                        eval_id: fnv1a_eval_id_gen("jnz_opcode"),
                         claim,
                         memory_address_to_id_lookup_elements: interaction_elements
                             .memory_address_to_id
@@ -667,6 +671,7 @@ impl OpcodeComponents {
                 jnz_opcode_taken::Component::new(
                     tree_span_provider,
                     jnz_opcode_taken::Eval {
+                        eval_id: fnv1a_eval_id_gen("jnz_opcode_taken"),
                         claim,
                         memory_address_to_id_lookup_elements: interaction_elements
                             .memory_address_to_id
@@ -691,6 +696,7 @@ impl OpcodeComponents {
                 jump_opcode::Component::new(
                     tree_span_provider,
                     jump_opcode::Eval {
+                        eval_id: fnv1a_eval_id_gen("jump_opcode"),
                         claim,
                         memory_address_to_id_lookup_elements: interaction_elements
                             .memory_address_to_id
@@ -715,6 +721,7 @@ impl OpcodeComponents {
                 jump_opcode_double_deref::Component::new(
                     tree_span_provider,
                     jump_opcode_double_deref::Eval {
+                        eval_id: fnv1a_eval_id_gen("jump_opcode_double_deref"),
                         claim,
                         memory_address_to_id_lookup_elements: interaction_elements
                             .memory_address_to_id
@@ -739,6 +746,7 @@ impl OpcodeComponents {
                 jump_opcode_rel::Component::new(
                     tree_span_provider,
                     jump_opcode_rel::Eval {
+                        eval_id: fnv1a_eval_id_gen("jump_opcode_rel"),
                         claim,
                         memory_address_to_id_lookup_elements: interaction_elements
                             .memory_address_to_id
@@ -763,6 +771,7 @@ impl OpcodeComponents {
                 jump_opcode_rel_imm::Component::new(
                     tree_span_provider,
                     jump_opcode_rel_imm::Eval {
+                        eval_id: fnv1a_eval_id_gen("jump_opcode_rel_imm"),
                         claim,
                         memory_address_to_id_lookup_elements: interaction_elements
                             .memory_address_to_id
@@ -787,6 +796,7 @@ impl OpcodeComponents {
                 mul_opcode::Component::new(
                     tree_span_provider,
                     mul_opcode::Eval {
+                        eval_id: fnv1a_eval_id_gen("mul_opcode"),
                         claim,
                         memory_address_to_id_lookup_elements: interaction_elements
                             .memory_address_to_id
@@ -843,6 +853,7 @@ impl OpcodeComponents {
                 mul_opcode_small::Component::new(
                     tree_span_provider,
                     mul_opcode_small::Eval {
+                        eval_id: fnv1a_eval_id_gen("mul_opcode_small"),
                         claim,
                         memory_address_to_id_lookup_elements: interaction_elements
                             .memory_address_to_id
@@ -871,6 +882,7 @@ impl OpcodeComponents {
                 qm_31_add_mul_opcode::Component::new(
                     tree_span_provider,
                     qm_31_add_mul_opcode::Eval {
+                        eval_id: fnv1a_eval_id_gen("qm_31_add_mul_opcode"),
                         claim,
                         memory_address_to_id_lookup_elements: interaction_elements
                             .memory_address_to_id
@@ -899,6 +911,7 @@ impl OpcodeComponents {
                 ret_opcode::Component::new(
                     tree_span_provider,
                     ret_opcode::Eval {
+                        eval_id: fnv1a_eval_id_gen("ret_opcode"),
                         claim,
                         memory_address_to_id_lookup_elements: interaction_elements
                             .memory_address_to_id
@@ -1040,6 +1053,111 @@ impl OpcodeComponents {
             self.ret
                 .iter()
                 .map(|component| component as &dyn ComponentProver<SimdBackend>),
+        );
+        vec
+    }
+
+    pub fn provers_cuda(&self) -> Vec<&dyn ComponentProver<CudaBackend>> {
+        let mut vec: Vec<&dyn ComponentProver<CudaBackend>> = vec![];
+        vec.extend(
+            self.add
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.add_small
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.add_ap
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.assert_eq
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.assert_eq_imm
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.assert_eq_double_deref
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.blake
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.call
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.call_rel_imm
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.generic
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.jnz
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.jnz_taken
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.jump
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.jump_double_deref
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.jump_rel
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.jump_rel_imm
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.mul
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.mul_small
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.qm31
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.ret
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
         );
         vec
     }

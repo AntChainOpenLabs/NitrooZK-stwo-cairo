@@ -14,6 +14,7 @@ use stwo::core::pcs::PcsConfig;
 use stwo::core::poly::circle::CanonicCoset;
 use stwo::core::proof_of_work::GrindOps;
 use stwo::core::vcs::MerkleHasher;
+use stwo::prover::backend::cuda::CudaBackend;
 use stwo::prover::backend::simd::SimdBackend;
 use stwo::prover::backend::BackendForChannel;
 use stwo::prover::poly::circle::PolyOps;
@@ -25,6 +26,7 @@ use tracing::{event, span, Level};
 use crate::stwo::core::vcs::blake2_merkle::Blake2sMerkleChannel;
 use crate::stwo::core::vcs::poseidon252_merkle::Poseidon252MerkleChannel;
 use crate::witness::cairo::CairoClaimGenerator;
+use crate::witness::cairo_cuda::{convert_simd_to_cuda_evaluation, CairoCudaClaimGenerator};
 use crate::witness::utils::witness_trace_cells;
 
 pub(crate) const LOG_MAX_ROWS: u32 = 26;
@@ -71,6 +73,7 @@ where
 
     // Draw interaction elements.
     let interaction_pow = SimdBackend::grind(channel, INTERACTION_POW_BITS);
+    tracing::info!("CPU interaction_pow: {}", interaction_pow);
     channel.mix_u64(interaction_pow);
     let interaction_elements = CairoInteractionElements::draw(channel);
 
@@ -121,6 +124,135 @@ where
     let proof = prove::<SimdBackend, _>(&components, channel, commitment_scheme)?;
     span.exit();
 
+    event!(name: "component_info", Level::DEBUG, "Components: {}", component_builder);
+
+    Ok(CairoProof {
+        claim,
+        interaction_pow,
+        interaction_claim,
+        stark_proof: proof,
+    })
+}
+
+/// CUDA prover implementation.
+///
+/// Uses CairoCudaClaimGenerator for mixed SIMD/CUDA trace generation:
+/// - add_opcode traces are generated via CUDA
+/// - Other component traces are generated via SIMD and converted to CUDA
+pub fn prove_cairo_cuda<MC: MerkleChannel>(
+    input: ProverInput,
+    pcs_config: PcsConfig,
+    preprocessed_trace: PreProcessedTraceVariant,
+) -> Result<CairoProof<MC::H>, ProvingError>
+where
+    CudaBackend: BackendForChannel<MC>,
+    SimdBackend: BackendForChannel<MC>,
+{
+    let _span = span!(Level::INFO, "prove_cairo_cuda").entered();
+
+    // Use CudaBackend for twiddles and commitment scheme
+    tracing::info!("Computing twiddles for CUDA backend");
+    let twiddles = CudaBackend::precompute_twiddles(
+        CanonicCoset::new(LOG_MAX_ROWS + pcs_config.fri_config.log_blowup_factor + 2)
+            .circle_domain()
+            .half_coset,
+    );
+
+    // Setup protocol with CudaBackend
+    let channel = &mut MC::C::default();
+    pcs_config.mix_into(channel);
+    let mut commitment_scheme =
+        CommitmentSchemeProver::<CudaBackend, MC>::new(pcs_config, &twiddles);
+
+    // Preprocessed trace (CPU generation, convert to CUDA)
+    tracing::info!("Generating preprocessed trace (CPU -> CUDA)");
+    let start = std::time::Instant::now();
+    let preprocessed_trace = preprocessed_trace.to_preprocessed_trace();
+    let mut tree_builder = commitment_scheme.tree_builder();
+    // Convert SimdBackend preprocessed traces to CudaBackend
+    tree_builder.extend_evals(
+        preprocessed_trace
+            .gen_trace()
+            .into_iter()
+            .map(convert_simd_to_cuda_evaluation),
+    );
+    tree_builder.commit(channel);
+    tracing::info!("Preprocessed trace generation took {:?}", start.elapsed());
+
+    // Base trace (CUDA for add_opcode, SIMD for other components)
+    tracing::info!("Generating base trace (CUDA add_opcode + SIMD others)");
+    let start = std::time::Instant::now();
+    let cairo_claim_generator = CairoCudaClaimGenerator::new(input);
+    let mut tree_builder = commitment_scheme.tree_builder();
+    let span = span!(Level::INFO, "Base trace").entered();
+    let (claim, interaction_generator) = cairo_claim_generator.write_trace(&mut tree_builder);
+    span.exit();
+    tracing::info!("Base trace generation took {:?}", start.elapsed());
+
+    // Commit base trace
+    tracing::info!("Committing base trace");
+    let start = std::time::Instant::now();
+    claim.mix_into(channel);
+    tree_builder.commit(channel);
+    tracing::info!("Base trace commit took {:?}", start.elapsed());
+
+    // Draw interaction elements
+    tracing::info!("Computing proof of work with {} bits", INTERACTION_POW_BITS);
+    let interaction_pow = CudaBackend::grind(channel, INTERACTION_POW_BITS);
+    tracing::info!("interaction_pow: {}", interaction_pow);
+    channel.mix_u64(interaction_pow);
+    let interaction_elements = CairoInteractionElements::draw(channel);
+
+    // Interaction trace (CUDA for add_opcode, SIMD for other components)
+    tracing::info!("Generating interaction trace (CUDA add_opcode + SIMD others)");
+    let start = std::time::Instant::now();
+    let mut tree_builder = commitment_scheme.tree_builder();
+    let span = span!(Level::INFO, "Interaction trace").entered();
+    let interaction_claim =
+        interaction_generator.write_interaction_trace(&mut tree_builder, &interaction_elements);
+    span.exit();
+    tracing::info!("Interaction trace generation took {:?}", start.elapsed());
+
+    tracing::info!(
+        "Witness trace cells: {:?}",
+        witness_trace_cells(&claim, &preprocessed_trace)
+    );
+
+    // Validate lookup argument
+    debug_assert_eq!(
+        lookup_sum(&claim, &interaction_elements, &interaction_claim),
+        SecureField::zero()
+    );
+
+    // Commit interaction traces
+    tracing::info!("Committing interaction trace");
+    let start = std::time::Instant::now();
+    interaction_claim.mix_into(channel);
+    tree_builder.commit(channel);
+    tracing::info!("Interaction trace commit took {:?}", start.elapsed());
+
+    // Component provers with CUDA backend
+    let component_builder = CairoComponents::new(
+        &claim,
+        &interaction_elements,
+        &interaction_claim,
+        &preprocessed_trace.ids(),
+    );
+
+    // Note: relation-tracker doesn't support CudaBackend, so it's disabled for CUDA prover
+
+    // Use CUDA component provers
+    tracing::info!("Getting CUDA component provers");
+    let components = component_builder.provers_cuda();
+
+    // Prove STARK with CudaBackend
+    let span = span!(Level::INFO, "Prove STARKs (CUDA)").entered();
+    let proving_start = std::time::Instant::now();
+    let proof = prove::<CudaBackend, _>(&components, channel, commitment_scheme)?;
+    let proving_duration = proving_start.elapsed();
+    span.exit();
+
+    tracing::info!("CUDA proving time: {:?}", proving_duration);
     event!(name: "component_info", Level::DEBUG, "Components: {}", component_builder);
 
     Ok(CairoProof {
@@ -258,6 +390,15 @@ pub mod tests {
     use stwo_cairo_common::preprocessed_columns::preprocessed_trace::testing_preprocessed_tree;
 
     use crate::debug_tools::assert_constraints::assert_cairo_constraints;
+    use crate::debug_tools::assert_constraints_cuda::assert_cairo_cuda_constraints;
+
+    // Imports for prove/verify tests
+    use cairo_air::verifier::verify_cairo;
+    use cairo_air::PreProcessedTraceVariant;
+    use stwo::core::pcs::PcsConfig;
+    use crate::stwo::core::vcs::blake2_merkle::Blake2sMerkleChannel;
+    use crate::prover::{prove_cairo, prove_cairo_cuda};
+
     #[test]
     fn test_all_cairo_constraints() {
         let compiled_program =
@@ -265,6 +406,80 @@ pub mod tests {
         let input = run_program_and_adapter(&compiled_program, ProgramType::Json, None);
         let pp_tree = testing_preprocessed_tree(20);
         assert_cairo_constraints(input, pp_tree);
+    }
+
+    #[test]
+    fn test_all_cairo_opcode_cuda_constraints() {
+        let compiled_program =
+            get_compiled_cairo_program_path("test_prove_verify_all_opcode_components");
+        let input = run_program_and_adapter(&compiled_program, ProgramType::Json, None);
+        let pp_tree = testing_preprocessed_tree(20);
+        assert_cairo_cuda_constraints(input, pp_tree);
+        println!("All Cairo CUDA constraints verified successfully!");
+    }
+
+    #[test]
+    fn test_all_cairo_builtin_cpu_constraints() {
+        let compiled_program =
+            get_compiled_cairo_program_path("test_prove_verify_all_builtins");
+        let input = run_program_and_adapter(&compiled_program, ProgramType::Json, None);
+        let pp_tree = testing_preprocessed_tree(24);
+        assert_cairo_constraints(input, pp_tree);
+        println!("All Cairo CPU constraints verified successfully!");
+    }
+
+    #[test]
+    fn test_all_cairo_builtin_cuda_constraints() {
+        let compiled_program =
+            get_compiled_cairo_program_path("test_prove_verify_all_builtins");
+        let input = run_program_and_adapter(&compiled_program, ProgramType::Json, None);
+        let pp_tree = testing_preprocessed_tree(24);
+        assert_cairo_cuda_constraints(input, pp_tree);
+        println!("All Cairo CUDA constraints verified successfully!");
+    }
+
+
+
+    #[test]
+    fn test_prove_verify_all_opcode_components() {
+        let compiled_program =
+            get_compiled_cairo_program_path("test_prove_verify_all_opcode_components");
+        let input = run_program_and_adapter(&compiled_program, ProgramType::Json, None);
+        for (opcode, n_instances) in &input.state_transitions.casm_states_by_opcode.counts() {
+            assert!(
+                *n_instances > 0,
+                "{opcode} isn't used in E2E full-Cairo opcode test"
+            );
+        }
+        let preprocessed_trace = PreProcessedTraceVariant::CanonicalWithoutPedersen;
+        let cairo_proof = prove_cairo::<Blake2sMerkleChannel>(
+            input,
+            PcsConfig::default(),
+            preprocessed_trace,
+        )
+        .unwrap();
+        verify_cairo::<Blake2sMerkleChannel>(cairo_proof, preprocessed_trace).unwrap();
+    }
+
+    #[test]
+    fn test_prove_verify_all_opcode_cuda_components() {
+        let compiled_program =
+            get_compiled_cairo_program_path("test_prove_verify_all_opcode_components");
+        let input = run_program_and_adapter(&compiled_program, ProgramType::Json, None);
+        for (opcode, n_instances) in &input.state_transitions.casm_states_by_opcode.counts() {
+            assert!(
+                *n_instances > 0,
+                "{opcode} isn't used in E2E full-Cairo opcode test"
+            );
+        }
+        let preprocessed_trace = PreProcessedTraceVariant::CanonicalWithoutPedersen;
+        let cairo_proof = prove_cairo_cuda::<Blake2sMerkleChannel>(
+            input,
+            PcsConfig::default(),
+            preprocessed_trace,
+        )
+        .unwrap();
+        verify_cairo::<Blake2sMerkleChannel>(cairo_proof, preprocessed_trace).unwrap();
     }
 
     #[cfg(test)]
@@ -284,7 +499,7 @@ pub mod tests {
         use test_log::test;
 
         use super::*;
-        use crate::prover::prove_cairo;
+        use crate::prover::{prove_cairo, prove_cairo_cuda};
 
         #[test]
         fn test_poseidon_e2e_prove_cairo_verify_ret_opcode_components() {
@@ -366,7 +581,7 @@ pub mod tests {
 
         use super::*;
         use crate::debug_tools::assert_constraints::assert_cairo_constraints;
-        use crate::prover::{prove_cairo, PreProcessedTraceVariant, ProverInput};
+        use crate::prover::{prove_cairo, prove_cairo_cuda, PreProcessedTraceVariant, ProverInput};
 
         // TODO(Ohad): fine-grained constraints tests.
         #[test]
@@ -377,26 +592,48 @@ pub mod tests {
             assert_cairo_constraints(input, PreProcessedTrace::canonical_without_pedersen());
         }
 
-        #[test]
-        fn test_prove_verify_all_opcode_components() {
-            let compiled_program =
-                get_compiled_cairo_program_path("test_prove_verify_all_opcode_components");
-            let input = run_program_and_adapter(&compiled_program, ProgramType::Json, None);
-            for (opcode, n_instances) in &input.state_transitions.casm_states_by_opcode.counts() {
-                assert!(
-                    *n_instances > 0,
-                    "{opcode} isn't used in E2E full-Cairo opcode test"
-                );
-            }
-            let preprocessed_trace = PreProcessedTraceVariant::CanonicalWithoutPedersen;
-            let cairo_proof = prove_cairo::<Blake2sMerkleChannel>(
-                input,
-                PcsConfig::default(),
-                preprocessed_trace,
-            )
-            .unwrap();
-            verify_cairo::<Blake2sMerkleChannel>(cairo_proof, preprocessed_trace).unwrap();
-        }
+        // #[test]
+        // fn test_prove_verify_all_opcode_components() {
+        //     let compiled_program =
+        //         get_compiled_cairo_program_path("test_prove_verify_all_opcode_components");
+        //     let input = run_program_and_adapter(&compiled_program, ProgramType::Json, None);
+        //     for (opcode, n_instances) in &input.state_transitions.casm_states_by_opcode.counts() {
+        //         assert!(
+        //             *n_instances > 0,
+        //             "{opcode} isn't used in E2E full-Cairo opcode test"
+        //         );
+        //     }
+        //     let preprocessed_trace = PreProcessedTraceVariant::CanonicalWithoutPedersen;
+        //     let cairo_proof = prove_cairo::<Blake2sMerkleChannel>(
+        //         input,
+        //         PcsConfig::default(),
+        //         preprocessed_trace,
+        //     )
+        //     .unwrap();
+        //     verify_cairo::<Blake2sMerkleChannel>(cairo_proof, preprocessed_trace).unwrap();
+        // }
+
+        // #[test]
+        // // #[ignore] // Requires CUDA hardware
+        // fn test_prove_verify_all_opcode_cuda_components() {
+        //     let compiled_program =
+        //         get_compiled_cairo_program_path("test_prove_verify_all_opcode_components");
+        //     let input = run_program_and_adapter(&compiled_program, ProgramType::Json, None);
+        //     for (opcode, n_instances) in &input.state_transitions.casm_states_by_opcode.counts() {
+        //         assert!(
+        //             *n_instances > 0,
+        //             "{opcode} isn't used in E2E full-Cairo opcode test"
+        //         );
+        //     }
+        //     let preprocessed_trace = PreProcessedTraceVariant::CanonicalWithoutPedersen;
+        //     let cairo_proof = prove_cairo_cuda::<Blake2sMerkleChannel>(
+        //         input,
+        //         PcsConfig::default(),
+        //         preprocessed_trace,
+        //     )
+        //     .unwrap();
+        //     verify_cairo::<Blake2sMerkleChannel>(cairo_proof, preprocessed_trace).unwrap();
+        // }
 
         #[test]
         fn test_e2e_prove_cairo_verify_all_opcode_components() {

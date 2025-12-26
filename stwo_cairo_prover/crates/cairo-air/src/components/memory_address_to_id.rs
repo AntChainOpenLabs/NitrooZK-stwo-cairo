@@ -37,9 +37,9 @@ pub struct Eval {
     pub lookup_elements: relations::MemoryAddressToId,
 }
 impl Eval {
-    pub fn new(claim: Claim, lookup_elements: relations::MemoryAddressToId) -> Self {
+    pub fn new(eval_id: u32, claim: Claim, lookup_elements: relations::MemoryAddressToId) -> Self {
         Self {
-            eval_id: 0,  // Will be set by caller
+            eval_id,
             log_size: claim.log_size,
             lookup_elements,
         }
@@ -77,6 +77,7 @@ impl FrameworkEval for Eval {
 }
 
 #[derive(Clone, Serialize, Deserialize, CairoSerialize, CairoDeserialize)]
+#[repr(C)]
 pub struct Claim {
     pub log_size: u32,
 }
@@ -94,6 +95,7 @@ impl Claim {
 }
 
 #[derive(Clone, Serialize, Deserialize, CairoSerialize, CairoDeserialize)]
+#[repr(C)]
 pub struct InteractionClaim {
     pub claimed_sum: SecureField,
 }

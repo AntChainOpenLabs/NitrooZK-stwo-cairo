@@ -1,11 +1,16 @@
 pub mod blake_context;
+pub mod blake_context_cuda;
 pub mod builtins;
+pub mod builtins_cuda;
 pub mod cairo;
+pub mod cairo_cuda;
 pub mod components;
 pub mod components_cuda;
 pub mod fast_deduction;
 pub mod opcodes;
+pub mod opcodes_cuda;
 pub mod prelude;
 pub mod preprocessed_trace;
 pub mod range_checks;
+pub mod range_checks_cuda;
 pub mod utils;

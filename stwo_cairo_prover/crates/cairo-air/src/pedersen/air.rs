@@ -1,8 +1,9 @@
 use num_traits::Zero;
 use stwo::core::fields::qm31::QM31;
+use stwo::prover::backend::cuda::CudaBackend;
 use stwo::prover::backend::simd::SimdBackend;
 use stwo::prover::ComponentProver;
-use stwo_constraint_framework::TraceLocationAllocator;
+use stwo_constraint_framework::{fnv1a_eval_id_gen, TraceLocationAllocator};
 
 use crate::air::{accumulate_relation_uses, CairoInteractionElements, RelationUsesDict};
 use crate::components::prelude::*;
@@ -132,6 +133,13 @@ impl PedersenContextComponents {
             .map(|c| c.provers())
             .unwrap_or_default()
     }
+
+    pub fn provers_cuda(&self) -> Vec<&dyn ComponentProver<CudaBackend>> {
+        self.components
+            .as_ref()
+            .map(|c| c.provers_cuda())
+            .unwrap_or_default()
+    }
 }
 
 impl std::fmt::Display for PedersenContextComponents {
@@ -157,6 +165,7 @@ impl Components {
         let partial_ec_mul_component = partial_ec_mul::Component::new(
             tree_span_provider,
             partial_ec_mul::Eval {
+                eval_id: fnv1a_eval_id_gen("partial_ec_mul"),
                 claim: claim.claim.as_ref().unwrap().partial_ec_mul,
                 partial_ec_mul_lookup_elements: interaction_elements.partial_ec_mul.clone(),
                 pedersen_points_table_lookup_elements: interaction_elements
@@ -206,6 +215,7 @@ impl Components {
         let pedersen_points_table_component = pedersen_points_table::Component::new(
             tree_span_provider,
             pedersen_points_table::Eval {
+                eval_id: fnv1a_eval_id_gen("pedersen_points_table"),
                 claim: claim.claim.as_ref().unwrap().pedersen_points_table,
                 pedersen_points_table_lookup_elements: interaction_elements
                     .pedersen_points_table
@@ -221,6 +231,10 @@ impl Components {
     }
 
     pub fn provers(&self) -> Vec<&dyn ComponentProver<SimdBackend>> {
+        vec![&self.partial_ec_mul, &self.pedersen_points_table]
+    }
+
+    pub fn provers_cuda(&self) -> Vec<&dyn ComponentProver<CudaBackend>> {
         vec![&self.partial_ec_mul, &self.pedersen_points_table]
     }
 }

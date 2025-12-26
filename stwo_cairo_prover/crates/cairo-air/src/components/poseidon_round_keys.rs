@@ -5,12 +5,15 @@ pub const N_TRACE_COLUMNS: usize = 1;
 pub const LOG_SIZE: u32 = 6;
 pub const RELATION_USES_PER_ROW: [RelationUse; 0] = [];
 
+#[repr(C)]
 pub struct Eval {
+    pub eval_id: u32,
     pub claim: Claim,
     pub poseidon_round_keys_lookup_elements: relations::PoseidonRoundKeys,
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, CairoSerialize, CairoDeserialize)]
+#[repr(C)]
 pub struct Claim {}
 impl Claim {
     pub fn log_sizes(&self) -> TreeVec<Vec<u32>> {
@@ -138,6 +141,7 @@ mod tests {
     fn poseidon_round_keys_constraints_regression() {
         let mut rng = SmallRng::seed_from_u64(0);
         let eval = Eval {
+            eval_id: 0,
             claim: Claim {},
             poseidon_round_keys_lookup_elements: relations::PoseidonRoundKeys::dummy(),
         };

@@ -1,3 +1,4 @@
+use stwo::prover::backend::CudaBackend;
 use itertools::{chain, Itertools};
 use num_traits::Zero;
 use serde::{Deserialize, Serialize};
@@ -16,7 +17,7 @@ use stwo_cairo_common::prover_types::cpu::CasmState;
 use stwo_cairo_common::prover_types::felt::split_f252;
 use stwo_cairo_serialize::{CairoDeserialize, CairoSerialize};
 use stwo_constraint_framework::preprocessed_columns::PreProcessedColumnId;
-use stwo_constraint_framework::{Relation, TraceLocationAllocator};
+use stwo_constraint_framework::{fnv1a_eval_id_gen, Relation, TraceLocationAllocator};
 
 use super::blake::air::{BlakeContextClaim, BlakeContextComponents, BlakeContextInteractionClaim};
 use super::builtins_air::{BuiltinComponents, BuiltinsClaim, BuiltinsInteractionClaim};
@@ -101,6 +102,7 @@ pub fn accumulate_relation_uses<const N: usize>(
 }
 
 #[derive(Serialize, Deserialize, CairoSerialize, CairoDeserialize)]
+#[repr(C)]
 pub struct CairoClaim {
     pub public_data: PublicData,
     pub opcodes: OpcodeClaim,
@@ -620,6 +622,7 @@ impl CairoInteractionElements {
 }
 
 #[derive(Serialize, Deserialize, CairoSerialize, CairoDeserialize)]
+#[repr(C)]
 pub struct CairoInteractionClaim {
     pub opcodes: OpcodeInteractionClaim,
     pub verify_instruction: verify_instruction::InteractionClaim,
@@ -683,6 +686,7 @@ pub fn lookup_sum(
     sum
 }
 
+#[repr(C)]
 pub struct CairoComponents {
     pub opcodes: OpcodeComponents,
     pub verify_instruction: verify_instruction::Component,
@@ -724,6 +728,7 @@ impl CairoComponents {
         let verify_instruction_component = verify_instruction::Component::new(
             tree_span_provider,
             verify_instruction::Eval {
+                eval_id: fnv1a_eval_id_gen("verify_instruction"),
                 claim: cairo_claim.verify_instruction,
                 memory_address_to_id_lookup_elements: interaction_elements
                     .memory_address_to_id
@@ -766,6 +771,7 @@ impl CairoComponents {
         let memory_address_to_id_component = memory_address_to_id::Component::new(
             tree_span_provider,
             memory_address_to_id::Eval::new(
+                fnv1a_eval_id_gen("memory_address_to_id"),
                 cairo_claim.memory_address_to_id.clone(),
                 interaction_elements.memory_address_to_id.clone(),
             ),
@@ -773,6 +779,7 @@ impl CairoComponents {
         );
 
         let memory_id_to_value_components = memory_id_to_big::big_components_from_claim(
+            fnv1a_eval_id_gen("memory_id_to_big_big_eval"),
             &cairo_claim.memory_id_to_value.big_log_sizes,
             &interaction_claim.memory_id_to_value.big_claimed_sums,
             &interaction_elements.memory_id_to_value,
@@ -789,6 +796,7 @@ impl CairoComponents {
         let small_memory_id_to_value_component = memory_id_to_big::SmallComponent::new(
             tree_span_provider,
             memory_id_to_big::SmallEval::new(
+                fnv1a_eval_id_gen("memory_id_to_big_small_eval"),
                 cairo_claim.memory_id_to_value.clone(),
                 interaction_elements.memory_id_to_value.clone(),
                 interaction_elements.range_checks.rc_9_9.clone(),
@@ -809,6 +817,7 @@ impl CairoComponents {
         let verify_bitwise_xor_4_component = verify_bitwise_xor_4::Component::new(
             tree_span_provider,
             verify_bitwise_xor_4::Eval {
+                eval_id: fnv1a_eval_id_gen("verify_bitwise_xor_4"),
                 claim: cairo_claim.verify_bitwise_xor_4,
                 verify_bitwise_xor_4_lookup_elements: interaction_elements
                     .verify_bitwise_xor_4
@@ -819,6 +828,7 @@ impl CairoComponents {
         let verify_bitwise_xor_7_component = verify_bitwise_xor_7::Component::new(
             tree_span_provider,
             verify_bitwise_xor_7::Eval {
+                eval_id: fnv1a_eval_id_gen("verify_bitwise_xor_7"),
                 claim: cairo_claim.verify_bitwise_xor_7,
                 verify_bitwise_xor_7_lookup_elements: interaction_elements
                     .verify_bitwise_xor_7
@@ -829,6 +839,7 @@ impl CairoComponents {
         let verify_bitwise_xor_8_component = verify_bitwise_xor_8::Component::new(
             tree_span_provider,
             verify_bitwise_xor_8::Eval {
+                eval_id: fnv1a_eval_id_gen("verify_bitwise_xor_8"),
                 claim: cairo_claim.verify_bitwise_xor_8,
                 verify_bitwise_xor_8_lookup_elements: interaction_elements
                     .verify_bitwise_xor_8
@@ -839,6 +850,7 @@ impl CairoComponents {
         let verify_bitwise_xor_8_b_component = verify_bitwise_xor_8_b::Component::new(
             tree_span_provider,
             verify_bitwise_xor_8_b::Eval {
+                eval_id: fnv1a_eval_id_gen("verify_bitwise_xor_8_b"),
                 claim: cairo_claim.verify_bitwise_xor_8_b,
                 verify_bitwise_xor_8_b_lookup_elements: interaction_elements
                     .verify_bitwise_xor_8_b
@@ -849,6 +861,7 @@ impl CairoComponents {
         let verify_bitwise_xor_9_component = verify_bitwise_xor_9::Component::new(
             tree_span_provider,
             verify_bitwise_xor_9::Eval {
+                eval_id: fnv1a_eval_id_gen("verify_bitwise_xor_9"),
                 claim: cairo_claim.verify_bitwise_xor_9,
                 verify_bitwise_xor_9_lookup_elements: interaction_elements
                     .verify_bitwise_xor_9
@@ -898,6 +911,32 @@ impl CairoComponents {
                 &self.verify_bitwise_xor_8 as &dyn ComponentProver<SimdBackend>,
                 &self.verify_bitwise_xor_8_b as &dyn ComponentProver<SimdBackend>,
                 &self.verify_bitwise_xor_9 as &dyn ComponentProver<SimdBackend>,
+            ]
+        )
+        .collect()
+    }
+
+    pub fn provers_cuda(&self) -> Vec<&dyn ComponentProver<CudaBackend>> {
+        chain!(
+            self.opcodes.provers_cuda(),
+            [&self.verify_instruction as &dyn ComponentProver<CudaBackend>,],
+            self.blake_context.provers_cuda(),
+            self.builtins.provers_cuda(),
+            self.pedersen_context.provers_cuda(),
+            self.poseidon_context.provers_cuda(),
+            [&self.memory_address_to_id as &dyn ComponentProver<CudaBackend>,],
+            self.memory_id_to_value
+                .0
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+            [&self.memory_id_to_value.1 as &dyn ComponentProver<CudaBackend>,],
+            self.range_checks.provers_cuda(),
+            [
+                &self.verify_bitwise_xor_4 as &dyn ComponentProver<CudaBackend>,
+                &self.verify_bitwise_xor_7 as &dyn ComponentProver<CudaBackend>,
+                &self.verify_bitwise_xor_8 as &dyn ComponentProver<CudaBackend>,
+                &self.verify_bitwise_xor_8_b as &dyn ComponentProver<CudaBackend>,
+                &self.verify_bitwise_xor_9 as &dyn ComponentProver<CudaBackend>,
             ]
         )
         .collect()

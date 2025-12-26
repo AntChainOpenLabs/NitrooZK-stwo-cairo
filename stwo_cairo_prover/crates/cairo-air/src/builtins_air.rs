@@ -5,9 +5,11 @@ use stwo::core::channel::Channel;
 use stwo::core::fields::qm31::{SecureField, QM31};
 use stwo::core::pcs::TreeVec;
 use stwo::prover::backend::simd::SimdBackend;
+
+use stwo::prover::backend::cuda::CudaBackend;
 use stwo::prover::ComponentProver;
 use stwo_cairo_serialize::{CairoDeserialize, CairoSerialize};
-use stwo_constraint_framework::TraceLocationAllocator;
+use stwo_constraint_framework::{fnv1a_eval_id_gen, TraceLocationAllocator};
 
 use super::air::CairoInteractionElements;
 use crate::air::{accumulate_relation_uses, RelationUsesDict};
@@ -17,6 +19,7 @@ use crate::components::{
 };
 
 #[derive(Serialize, Deserialize, CairoSerialize, CairoDeserialize)]
+#[repr(C)]
 pub struct BuiltinsClaim {
     pub add_mod_builtin: Option<add_mod_builtin::Claim>,
     pub bitwise_builtin: Option<bitwise_builtin::Claim>,
@@ -110,6 +113,7 @@ impl BuiltinsClaim {
 }
 
 #[derive(Serialize, Deserialize, CairoSerialize, CairoDeserialize)]
+#[repr(C)]
 pub struct BuiltinsInteractionClaim {
     pub add_mod_builtin: Option<add_mod_builtin::InteractionClaim>,
     pub bitwise_builtin: Option<bitwise_builtin::InteractionClaim>,
@@ -190,6 +194,7 @@ impl BuiltinComponents {
             add_mod_builtin::Component::new(
                 tree_span_provider,
                 add_mod_builtin::Eval {
+                    eval_id: fnv1a_eval_id_gen("add_mod_builtin"),
                     claim: add_mod_builtin,
                     memory_address_to_id_lookup_elements: interaction_elements
                         .memory_address_to_id
@@ -205,6 +210,7 @@ impl BuiltinComponents {
             bitwise_builtin::Component::new(
                 tree_span_provider,
                 bitwise_builtin::Eval {
+                    eval_id: fnv1a_eval_id_gen("bitwise_builtin"),
                     claim: bitwise_builtin,
                     memory_address_to_id_lookup_elements: interaction_elements
                         .memory_address_to_id
@@ -226,6 +232,7 @@ impl BuiltinComponents {
             mul_mod_builtin::Component::new(
                 tree_span_provider,
                 mul_mod_builtin::Eval {
+                    eval_id: fnv1a_eval_id_gen("mul_mod_builtin"),
                     claim: mul_mod_builtin,
                     memory_address_to_id_lookup_elements: interaction_elements
                         .memory_address_to_id
@@ -247,6 +254,7 @@ impl BuiltinComponents {
             pedersen_builtin::Component::new(
                 tree_span_provider,
                 pedersen_builtin::Eval {
+                    eval_id: fnv1a_eval_id_gen("pedersen_builtin"),
                     claim: pedersen_builtin,
                     memory_address_to_id_lookup_elements: interaction_elements
                         .memory_address_to_id
@@ -268,6 +276,7 @@ impl BuiltinComponents {
             poseidon_builtin::Component::new(
                 tree_span_provider,
                 poseidon_builtin::Eval {
+                    eval_id: fnv1a_eval_id_gen("poseidon_builtin"),
                     claim: poseidon_builtin,
                     cube_252_lookup_elements: interaction_elements.cube_252.clone(),
                     memory_address_to_id_lookup_elements: interaction_elements
@@ -306,6 +315,7 @@ impl BuiltinComponents {
                 range_check_builtin_bits_96::Component::new(
                     tree_span_provider,
                     range_check_builtin_bits_96::Eval {
+                        eval_id: fnv1a_eval_id_gen("range_check_builtin_bits_96"),
                         claim: range_check_96_builtin,
                         memory_address_to_id_lookup_elements: interaction_elements
                             .memory_address_to_id
@@ -331,6 +341,7 @@ impl BuiltinComponents {
                     range_check_builtin_bits_128::Component::new(
                         tree_span_provider,
                         range_check_builtin_bits_128::Eval {
+                            eval_id: fnv1a_eval_id_gen("range_check_builtin_bits_128"),
                             claim: range_check_128_builtin,
                             memory_address_to_id_lookup_elements: interaction_elements
                                 .memory_address_to_id
@@ -378,6 +389,33 @@ impl BuiltinComponents {
         }
         if let Some(range_check_128_builtin) = &self.range_check_128_builtin {
             vec.push(range_check_128_builtin as &dyn ComponentProver<SimdBackend>);
+        }
+        vec
+    }
+
+
+    pub fn provers_cuda(&self) -> Vec<&dyn ComponentProver<CudaBackend>> {
+        let mut vec: Vec<&dyn ComponentProver<CudaBackend>> = vec![];
+        if let Some(add_mod_builtin) = &self.add_mod_builtin {
+            vec.push(add_mod_builtin as &dyn ComponentProver<CudaBackend>);
+        }
+        if let Some(bitwise_builtin) = &self.bitwise_builtin {
+            vec.push(bitwise_builtin as &dyn ComponentProver<CudaBackend>);
+        }
+        if let Some(mul_mod_builtin) = &self.mul_mod_builtin {
+            vec.push(mul_mod_builtin as &dyn ComponentProver<CudaBackend>);
+        }
+        if let Some(pedersen_builtin) = &self.pedersen_builtin {
+            vec.push(pedersen_builtin as &dyn ComponentProver<CudaBackend>);
+        }
+        if let Some(poseidon_builtin) = &self.poseidon_builtin {
+            vec.push(poseidon_builtin as &dyn ComponentProver<CudaBackend>);
+        }
+        if let Some(range_check_96_builtin) = &self.range_check_96_builtin {
+            vec.push(range_check_96_builtin as &dyn ComponentProver<CudaBackend>);
+        }
+        if let Some(range_check_128_builtin) = &self.range_check_128_builtin {
+            vec.push(range_check_128_builtin as &dyn ComponentProver<CudaBackend>);
         }
         vec
     }

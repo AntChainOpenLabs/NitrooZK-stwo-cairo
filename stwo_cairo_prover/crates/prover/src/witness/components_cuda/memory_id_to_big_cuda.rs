@@ -146,7 +146,6 @@ impl CudaClaimGenerator {
         let inputs_vec = cuda_inputs.iter()
             .flat_map(|row| row.iter().map(|x| x.device_ptr))
             .collect_vec();
-        // println!("memory_id_to_big_add_inputs col len: {:?}, row len:{:?}", cuda_inputs.len(), cuda_inputs[0][0].size);
         unsafe {
             bindings_airs::memory_id_to_big_add_inputs(
                 inputs_vec.as_ptr(),

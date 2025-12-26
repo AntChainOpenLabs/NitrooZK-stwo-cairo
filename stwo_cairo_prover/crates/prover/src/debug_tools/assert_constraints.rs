@@ -140,7 +140,12 @@ fn assert_cairo_components(trace: TreeVec<Vec<&Vec<M31>>>, cairo_components: &Ca
     assert_many(qm31, &trace);
     assert_many(ret, &trace);
 
+    // Verify instruction
+    println!("Testing verify_instruction with CPU...");
     assert_component(verify_instruction, &trace);
+
+    // Range checks
+    println!("Testing range checks with CPU...");
     assert_component(rc_6, &trace);
     assert_component(rc_8, &trace);
     assert_component(rc_11, &trace);
@@ -170,6 +175,9 @@ fn assert_cairo_components(trace: TreeVec<Vec<&Vec<M31>>>, cairo_components: &Ca
     assert_component(rc_3_6_6_3, &trace);
     assert_component(rc_4_4_4_4, &trace);
     assert_component(rc_3_3_3_3_3, &trace);
+
+    // Verify bitwise xor
+    println!("Testing verify_bitwise_xor with CPU...");
     assert_component(verify_bitwise_xor_4, &trace);
     assert_component(verify_bitwise_xor_7, &trace);
     assert_component(verify_bitwise_xor_8, &trace);
@@ -181,6 +189,7 @@ fn assert_cairo_components(trace: TreeVec<Vec<&Vec<M31>>>, cairo_components: &Ca
     }
     assert_component(&memory_id_to_value.1, &trace);
 
+    // Blake context
     if let Some(cairo_air::blake::air::Components {
         blake_round,
         blake_g,
@@ -196,6 +205,7 @@ fn assert_cairo_components(trace: TreeVec<Vec<&Vec<M31>>>, cairo_components: &Ca
         assert_component(verify_bitwise_xor_12, &trace);
     }
 
+    println!("Testing builtins with CPU...");
     let BuiltinComponents {
         add_mod_builtin,
         bitwise_builtin,
@@ -231,6 +241,7 @@ fn assert_cairo_components(trace: TreeVec<Vec<&Vec<M31>>>, cairo_components: &Ca
         pedersen_points_table,
     }) = &pedersen_context.components
     {
+        println!("Testing pedersen context components with CPU...");
         assert_component(partial_ec_mul, &trace);
         assert_component(pedersen_points_table, &trace);
     }
@@ -242,6 +253,7 @@ fn assert_cairo_components(trace: TreeVec<Vec<&Vec<M31>>>, cairo_components: &Ca
         range_check_felt_252_width_27,
     }) = &poseidon_context.components
     {
+        println!("Testing poseidon context components with CPU...");
         assert_component(poseidon_3_partial_rounds_chain, &trace);
         assert_component(poseidon_full_round_chain, &trace);
         assert_component(cube_252, &trace);

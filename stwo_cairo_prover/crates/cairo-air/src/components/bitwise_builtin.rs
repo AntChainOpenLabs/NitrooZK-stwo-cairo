@@ -25,7 +25,9 @@ pub const RELATION_USES_PER_ROW: [RelationUse; 4] = [
     },
 ];
 
+#[repr(C)]
 pub struct Eval {
+    pub eval_id: u32,
     pub claim: Claim,
     pub memory_address_to_id_lookup_elements: relations::MemoryAddressToId,
     pub memory_id_to_big_lookup_elements: relations::MemoryIdToBig,
@@ -34,6 +36,7 @@ pub struct Eval {
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, CairoSerialize, CairoDeserialize)]
+#[repr(C)]
 pub struct Claim {
     pub log_size: u32,
     pub bitwise_builtin_segment_start: u32,
@@ -667,6 +670,7 @@ mod tests {
     fn bitwise_builtin_constraints_regression() {
         let mut rng = SmallRng::seed_from_u64(0);
         let eval = Eval {
+            eval_id: 0,
             claim: Claim {
                 log_size: 4,
                 bitwise_builtin_segment_start: rng.gen::<u32>(),

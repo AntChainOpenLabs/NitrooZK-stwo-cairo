@@ -3,10 +3,11 @@ use serde::{Deserialize, Serialize};
 use stwo::core::channel::Channel;
 use stwo::core::fields::qm31::QM31;
 use stwo::core::pcs::TreeVec;
+use stwo::prover::backend::cuda::CudaBackend;
 use stwo::prover::backend::simd::SimdBackend;
 use stwo::prover::ComponentProver;
 use stwo_cairo_serialize::{CairoDeserialize, CairoSerialize};
-use stwo_constraint_framework::TraceLocationAllocator;
+use stwo_constraint_framework::{fnv1a_eval_id_gen, TraceLocationAllocator};
 
 use crate::air::{accumulate_relation_uses, CairoInteractionElements, RelationUsesDict};
 use crate::components::{
@@ -167,6 +168,13 @@ impl BlakeContextComponents {
             .map(|c| c.provers())
             .unwrap_or_default()
     }
+
+    pub fn provers_cuda(&self) -> Vec<&dyn ComponentProver<CudaBackend>> {
+        self.components
+            .as_ref()
+            .map(|c| c.provers_cuda())
+            .unwrap_or_default()
+    }
 }
 
 impl std::fmt::Display for BlakeContextComponents {
@@ -195,7 +203,7 @@ impl Components {
         let blake_round_component = blake_round::Component::new(
             tree_span_provider,
             blake_round::Eval {
-                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("blake_round"),
+                eval_id: fnv1a_eval_id_gen("blake_round"),
                 claim: claim.claim.as_ref().unwrap().blake_round,
                 blake_g_lookup_elements: interaction_elements.blake_g.clone(),
                 blake_round_lookup_elements: interaction_elements.blake_round.clone(),
@@ -215,7 +223,7 @@ impl Components {
         let blake_g_component = blake_g::Component::new(
             tree_span_provider,
             blake_g::Eval {
-                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("blake_g"),
+                eval_id: fnv1a_eval_id_gen("blake_g"),
                 claim: claim.claim.as_ref().unwrap().blake_g,
                 blake_g_lookup_elements: interaction_elements.blake_g.clone(),
                 verify_bitwise_xor_12_lookup_elements: interaction_elements
@@ -243,7 +251,7 @@ impl Components {
         let blake_sigma_component = blake_round_sigma::Component::new(
             tree_span_provider,
             blake_round_sigma::Eval {
-                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("blake_round_sigma"),
+                eval_id: fnv1a_eval_id_gen("blake_round_sigma"),
                 claim: claim.claim.as_ref().unwrap().blake_sigma,
                 blake_round_sigma_lookup_elements: interaction_elements.blake_sigma.clone(),
             },
@@ -253,7 +261,7 @@ impl Components {
         let triple_xor_32_component = triple_xor_32::Component::new(
             tree_span_provider,
             triple_xor_32::Eval {
-                eval_id: stwo_constraint_framework::fnv1a_eval_id_gen("triple_xor_32"),
+                eval_id: fnv1a_eval_id_gen("triple_xor_32"),
                 claim: claim.claim.as_ref().unwrap().triple_xor_32,
                 triple_xor_32_lookup_elements: interaction_elements.triple_xor_32.clone(),
                 verify_bitwise_xor_8_lookup_elements: interaction_elements
@@ -268,6 +276,7 @@ impl Components {
         let verify_bitwise_xor_12_component = verify_bitwise_xor_12::Component::new(
             tree_span_provider,
             verify_bitwise_xor_12::Eval {
+                eval_id: fnv1a_eval_id_gen("verify_bitwise_xor_12"),
                 claim: claim.claim.as_ref().unwrap().verify_bitwise_xor_12,
                 verify_bitwise_xor_12_lookup_elements: interaction_elements
                     .verify_bitwise_xor_12
@@ -285,6 +294,16 @@ impl Components {
     }
 
     pub fn provers(&self) -> Vec<&dyn ComponentProver<SimdBackend>> {
+        vec![
+            &self.blake_round,
+            &self.blake_g,
+            &self.blake_sigma,
+            &self.triple_xor_32,
+            &self.verify_bitwise_xor_12,
+        ]
+    }
+
+    pub fn provers_cuda(&self) -> Vec<&dyn ComponentProver<CudaBackend>> {
         vec![
             &self.blake_round,
             &self.blake_g,

@@ -105,6 +105,7 @@ pub struct BigEval {
 #[allow(clippy::too_many_arguments)]
 impl BigEval {
     pub fn new(
+        eval_id: u32,
         log_n_rows: u32,
         offset: u32,
         lookup_elements: relations::MemoryIdToBig,
@@ -118,7 +119,7 @@ impl BigEval {
         range_check_9_9_h_lookup_elements: relations::RangeCheck_9_9_H,
     ) -> Self {
         Self {
-            eval_id: 0,  // Will be set by caller
+            eval_id: eval_id,
             log_n_rows,
             offset,
             lookup_elements,
@@ -215,6 +216,7 @@ impl FrameworkEval for BigEval {
 
 #[allow(clippy::too_many_arguments)]
 pub fn big_components_from_claim(
+    eval_id: u32,
     log_sizes: &[u32],
     claimed_sums: &[SecureField],
     lookup_elements: &relations::MemoryIdToBig,
@@ -236,6 +238,7 @@ pub fn big_components_from_claim(
         components.push(BigComponent::new(
             tree_span_provider,
             BigEval::new(
+                eval_id,
                 log_size,
                 offset,
                 lookup_elements.clone(),
@@ -255,7 +258,9 @@ pub fn big_components_from_claim(
     components
 }
 
+#[repr(C)]
 pub struct SmallEval {
+    pub eval_id: u32,
     pub log_n_rows: u32,
     pub lookup_elements: relations::MemoryIdToBig,
     pub range_check_9_9_relation: relations::RangeCheck_9_9,
@@ -265,6 +270,7 @@ pub struct SmallEval {
 }
 impl SmallEval {
     pub fn new(
+        eval_id: u32,
         claim: Claim,
         lookup_elements: relations::MemoryIdToBig,
         range_check_9_9_relation: relations::RangeCheck_9_9,
@@ -273,6 +279,7 @@ impl SmallEval {
         range_check_9_9_d_relation: relations::RangeCheck_9_9_D,
     ) -> Self {
         Self {
+            eval_id: eval_id,
             log_n_rows: claim.small_log_size,
             lookup_elements,
             range_check_9_9_relation,
@@ -340,6 +347,7 @@ impl FrameworkEval for SmallEval {
 }
 
 #[derive(Clone, Serialize, Deserialize, CairoSerialize, CairoDeserialize)]
+#[repr(C)]
 pub struct Claim {
     pub big_log_sizes: Vec<u32>,
     pub small_log_size: u32,
@@ -414,7 +422,7 @@ mod tests {
         use stwo_constraint_framework::fnv1a_eval_id_gen;
         let mut rng = SmallRng::seed_from_u64(0);
         let big_eval = BigEval {
-            eval_id: fnv1a_eval_id_gen("memory_id_to_big"),
+            eval_id: fnv1a_eval_id_gen("memory_id_to_big_big_eval"),
             log_n_rows: 4,
             offset: 0,
             lookup_elements: relations::MemoryIdToBig::dummy(),
@@ -428,6 +436,7 @@ mod tests {
             range_check_9_9_h_lookup_elements: relations::RangeCheck_9_9_H::dummy(),
         };
         let small_eval = SmallEval {
+            eval_id: fnv1a_eval_id_gen("memory_id_to_big_small_eval"),
             log_n_rows: 4,
             lookup_elements: relations::MemoryIdToBig::dummy(),
             range_check_9_9_relation: relations::RangeCheck_9_9::dummy(),

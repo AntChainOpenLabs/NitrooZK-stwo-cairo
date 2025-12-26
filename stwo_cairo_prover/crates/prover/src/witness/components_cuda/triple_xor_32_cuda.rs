@@ -103,7 +103,6 @@ impl CudaClaimGenerator {
             .expect("Inputs should have exactly 3 elements");
 
         // for i in 0..self.packed_inputs.len() {
-        //     println!("self.packed_inputs[{}]: {:?}", i, self.packed_inputs[i].to_vec());
         // }
         self.size = self.packed_inputs[0].size as u32;
     }
@@ -288,6 +287,7 @@ impl CudaInteractionClaimGenerator {
 
 #[cfg(test)]
 pub mod tests {
+    use stwo_constraint_framework::fnv1a_eval_id_gen;
     use test_log::test;
 
     use crate::witness::components::triple_xor_32;
@@ -306,7 +306,6 @@ pub mod tests {
     use itertools::Itertools;
     use stwo_constraint_framework::TraceLocationAllocator;
     use stwo_constraint_framework::FrameworkComponent;
-    use stwo_constraint_framework::fnv1a_eval_id_gen;
     use crate::debug_tools::assert_constraints::assert_component;
     use cairo_air::components::triple_xor_32::Eval;
     use stwo_cairo_common::prover_types::simd::PackedUInt32;
@@ -359,7 +358,6 @@ pub mod tests {
         let trace = mock_commitment_scheme.trace_domain_evaluations();
 
         println!("triple_xor_32_interaction_claim.claimed_sum: {:?}", triple_xor_32_interaction_claim.claimed_sum);
-        // println!("trace: {:?}", trace);
 
 
         let tree_span_provider = &mut TraceLocationAllocator::default();
@@ -428,7 +426,6 @@ pub mod tests {
         let trace = mock_commitment_scheme.trace_domain_evaluations();
 
         println!("triple_xor_32_interaction_claim.claimed_sum: {:?}", triple_xor_32_interaction_claim.claimed_sum);
-        // println!("trace: {:?}", trace);
         let trace0_vec: Vec<_> = trace[0].clone().into_iter().map(|eval| BaseFieldVec::from_vec(eval.to_cpu().to_vec())).collect();
         let trace1_vec: Vec<_> = trace[1].clone().into_iter().map(|eval| BaseFieldVec::from_vec(eval.to_cpu().to_vec())).collect();
         let trace2_vec: Vec<_> = trace[2].clone().into_iter().map(|eval| BaseFieldVec::from_vec(eval.to_cpu().to_vec())).collect();
@@ -585,7 +582,6 @@ pub mod tests {
 
         assert_component(&component, &cuda_trace_to_cpu)
 
-        // println!("triple_xor_32_interaction_claim.claimed_sum: {:?}", triple_xor_32_interaction_claim.claimed_sum);
 
     }
 
@@ -630,7 +626,6 @@ pub mod tests {
         );
         mock_tree_builder.finalize_interaction();
 
-        // println!("triple_xor_32_claim: {:?}", triple_xor_32_claim.log_siz);
         // Interaction trace.
         let mut mock_tree_builder = mock_commitment_scheme.tree_builder();
         let triple_xor_32_interaction_claim = triple_xor_32_interaction_gen.write_interaction_trace(
@@ -714,7 +709,6 @@ pub mod tests {
             );
         }
 
-        // println!("triple_xor_32_interaction_claim.claimed_sum: {:?}", triple_xor_32_interaction_claim.claimed_sum);
     }
 
 }

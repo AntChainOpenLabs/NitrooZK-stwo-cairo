@@ -82,7 +82,6 @@ impl CudaClaimGenerator {
     }
 
     pub fn add_cuda_inputs(&self, cuda_inputs: &[CudaPackedInputType]) {
-        // println!("cuda_inputs verify_bitwise_xor_4_cuda inputs cols: {}, rows:{}, mults log_size:{}", cuda_inputs.len(), cuda_inputs[0][0].size, LOG_SIZE);
         let inputs_vec = cuda_inputs.iter()
             .flat_map(|row| row.iter().map(|x| x.device_ptr))
             .collect_vec();
@@ -168,6 +167,7 @@ impl CudaInteractionClaimGenerator {
 
 #[cfg(test)]
 pub mod tests {
+    use stwo_constraint_framework::fnv1a_eval_id_gen;
     use test_log::test;
 
     use crate::witness::components::blake_round_sigma;
@@ -190,7 +190,6 @@ pub mod tests {
     use crate::witness::components_cuda::blake_round_sigma_cuda;
     use stwo::stwo_cuda::base_field_vec::BaseFieldVec;
     use itertools::Itertools;
-    use stwo_constraint_framework::fnv1a_eval_id_gen;
     use stwo::prover::backend::Column;
     use stwo::core::fields::m31::M31;
     use stwo::core::fields::m31::BaseField;
@@ -240,17 +239,13 @@ pub mod tests {
         mock_tree_builder.finalize_interaction();
         let trace = mock_commitment_scheme.trace_domain_evaluations();
 
-        // println!("blake_round_sigma_interaction_claim.claimed_sum: {:?}", blake_round_sigma_interaction_claim.claimed_sum);
         // for i in 0..trace[0].len() {
-        //     println!("cuda precompute traces[{}]: {:?}", i, trace[0][i].to_vec());
         // }
 
         // for i in 0..trace[1].len() {
-        //     println!("cuda base traces[{}]: {:?}", i, trace[1][i].to_vec());
         // }
 
         // for i in 0..trace[2].len() {
-        //     println!("cuda interaction traces[{}]: {:?}", i, trace[2][i].to_vec());
         // }
 
 
