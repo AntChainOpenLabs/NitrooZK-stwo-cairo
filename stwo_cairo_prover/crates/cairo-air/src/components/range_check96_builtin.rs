@@ -19,12 +19,14 @@ pub const RELATION_USES_PER_ROW: [RelationUse; 3] = [
     },
 ];
 
+#[repr(C)]
 pub struct Eval {
     pub claim: Claim,
     pub common_lookup_elements: relations::CommonLookupElements,
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, CairoSerialize, CairoDeserialize)]
+#[repr(C)]
 pub struct Claim {
     pub log_size: u32,
     pub range_check96_builtin_segment_start: u32,
@@ -61,6 +63,9 @@ impl FrameworkEval for Eval {
 
     fn max_constraint_log_degree_bound(&self) -> u32 {
         self.log_size() + 1
+    }
+    fn cuda_eval_name(&self) -> &'static str {
+        "range_check96_builtin"
     }
 
     #[allow(unused_parens)]

@@ -35,6 +35,7 @@ pub const RELATION_USES_PER_ROW: [RelationUse; 0] = [];
 pub type Component = FrameworkComponent<Eval>;
 
 #[derive(Clone)]
+#[repr(C)]
 pub struct Eval {
     // The log size of the component after split.
     pub log_size: u32,
@@ -56,6 +57,9 @@ impl FrameworkEval for Eval {
 
     fn max_constraint_log_degree_bound(&self) -> u32 {
         self.log_size() + 1
+    }
+    fn cuda_eval_name(&self) -> &'static str {
+        "memory_address_to_id"
     }
 
     fn evaluate<E: EvalAtRow>(&self, mut eval: E) -> E {
@@ -80,6 +84,7 @@ impl FrameworkEval for Eval {
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, CairoSerialize, CairoDeserialize)]
+#[repr(C)]
 pub struct Claim {
     pub log_size: u32,
 }

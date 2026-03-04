@@ -28,12 +28,14 @@ pub const RELATION_USES_PER_ROW: [RelationUse; 5] = [
     },
 ];
 
+#[repr(C)]
 pub struct Eval {
     pub claim: Claim,
     pub common_lookup_elements: relations::CommonLookupElements,
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, CairoSerialize, CairoDeserialize)]
+#[repr(C)]
 pub struct Claim {
     pub log_size: u32,
 }
@@ -68,6 +70,9 @@ impl FrameworkEval for Eval {
 
     fn max_constraint_log_degree_bound(&self) -> u32 {
         self.log_size() + 1
+    }
+    fn cuda_eval_name(&self) -> &'static str {
+        "qm_31_add_mul_opcode"
     }
 
     #[allow(unused_parens)]

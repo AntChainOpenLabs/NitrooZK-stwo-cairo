@@ -87,6 +87,7 @@ relation!(RelationElements, N_LOGUP_POWERS);
 /// IDs are continuous and start from 0.
 /// Values are Felt252 stored as `FELT252_N_WORDS` M31 values (each value containing 9 bits).
 #[derive(Clone)]
+#[repr(C)]
 pub struct BigEval {
     pub log_n_rows: u32,
     // Internal offset of the ids when there are multiple components.
@@ -114,6 +115,9 @@ impl FrameworkEval for BigEval {
 
     fn max_constraint_log_degree_bound(&self) -> u32 {
         self.log_size() + 1
+    }
+    fn cuda_eval_name(&self) -> &'static str {
+        "memory_id_to_big_big_eval"
     }
 
     #[allow(non_snake_case)]
@@ -249,6 +253,7 @@ pub fn big_components_from_claim(
     components
 }
 
+#[repr(C)]
 pub struct SmallEval {
     pub log_n_rows: u32,
     pub common_lookup_elements: relations::CommonLookupElements,
@@ -268,6 +273,9 @@ impl FrameworkEval for SmallEval {
 
     fn max_constraint_log_degree_bound(&self) -> u32 {
         self.log_size() + 1
+    }
+    fn cuda_eval_name(&self) -> &'static str {
+        "memory_id_to_big_small_eval"
     }
 
     #[allow(non_snake_case)]
@@ -321,6 +329,7 @@ impl FrameworkEval for SmallEval {
 }
 
 #[derive(Clone, Serialize, Deserialize, CairoSerialize, CairoDeserialize)]
+#[repr(C)]
 pub struct Claim {
     pub big_log_sizes: Vec<u32>,
     pub small_log_size: u32,

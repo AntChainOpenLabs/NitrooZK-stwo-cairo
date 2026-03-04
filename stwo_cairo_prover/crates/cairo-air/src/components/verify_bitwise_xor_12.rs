@@ -7,12 +7,14 @@ pub const LOG_SIZE: u32 = (ELEM_BITS - EXPAND_BITS) * 2;
 pub const N_MULT_COLUMNS: usize = 1 << (EXPAND_BITS * 2);
 pub const N_TRACE_COLUMNS: usize = N_MULT_COLUMNS;
 
+#[repr(C)]
 pub struct Eval {
     pub claim: Claim,
     pub common_lookup_elements: relations::CommonLookupElements,
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, CairoSerialize, CairoDeserialize)]
+#[repr(C)]
 pub struct Claim {}
 impl Claim {
     pub fn log_sizes(&self) -> TreeVec<Vec<u32>> {
@@ -44,6 +46,9 @@ impl FrameworkEval for Eval {
 
     fn max_constraint_log_degree_bound(&self) -> u32 {
         self.log_size() + 1
+    }
+    fn cuda_eval_name(&self) -> &'static str {
+        "verify_bitwise_xor_12"
     }
 
     fn evaluate<E: EvalAtRow>(&self, mut eval: E) -> E {
