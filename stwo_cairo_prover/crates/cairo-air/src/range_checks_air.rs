@@ -1,4 +1,6 @@
 use stwo::core::air::Component;
+use stwo::prover::backend::cuda::CudaBackend;
+use stwo::prover::ComponentProver;
 use stwo_constraint_framework::TraceLocationAllocator;
 
 use crate::claims::CairoInteractionClaim;
@@ -166,6 +168,24 @@ impl RangeChecksComponents {
             &self.rc_3_6_6_3 as &dyn Component,
             &self.rc_4_4_4_4 as &dyn Component,
             &self.rc_3_3_3_3_3 as &dyn Component,
+        ]
+    }
+
+    pub fn provers_cuda(&self) -> Vec<&dyn ComponentProver<CudaBackend>> {
+        vec![
+            &self.rc_6 as &dyn ComponentProver<CudaBackend>,
+            &self.rc_8 as &dyn ComponentProver<CudaBackend>,
+            &self.rc_11 as &dyn ComponentProver<CudaBackend>,
+            &self.rc_12 as &dyn ComponentProver<CudaBackend>,
+            &self.rc_18 as &dyn ComponentProver<CudaBackend>,
+            &self.rc_20 as &dyn ComponentProver<CudaBackend>,
+            &self.rc_4_3 as &dyn ComponentProver<CudaBackend>,
+            &self.rc_4_4 as &dyn ComponentProver<CudaBackend>,
+            &self.rc_9_9 as &dyn ComponentProver<CudaBackend>,
+            &self.rc_7_2_5 as &dyn ComponentProver<CudaBackend>,
+            &self.rc_3_6_6_3 as &dyn ComponentProver<CudaBackend>,
+            &self.rc_4_4_4_4 as &dyn ComponentProver<CudaBackend>,
+            &self.rc_3_3_3_3_3 as &dyn ComponentProver<CudaBackend>,
         ]
     }
 }

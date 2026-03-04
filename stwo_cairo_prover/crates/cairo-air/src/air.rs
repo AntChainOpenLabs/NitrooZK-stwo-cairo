@@ -10,6 +10,8 @@ use stwo::core::fields::qm31::QM31;
 use stwo::core::fields::FieldExpOps;
 use stwo::core::proof::{ExtendedStarkProof, StarkProof};
 use stwo::core::vcs::MerkleHasher;
+use stwo::prover::backend::cuda::CudaBackend;
+use stwo::prover::ComponentProver;
 use stwo_cairo_common::prover_types::cpu::{CasmState, FELT252_BITS_PER_WORD, FELT252_N_WORDS};
 use stwo_cairo_common::prover_types::felt::{split, split_f252};
 use stwo_cairo_serialize::{CairoDeserialize, CairoSerialize};
@@ -81,6 +83,21 @@ pub struct CairoProofForRustVerifier<H: MerkleHasher> {
     pub stark_proof: StarkProof<H>,
     /// Salt used in the channel initialization.
     pub channel_salt: u32,
+    pub preprocessed_trace_variant: PreProcessedTraceVariant,
+}
+
+/// CUDA proof format using non-lifted MerkleHasher.
+///
+/// The CUDA proving path uses the non-lifted `MerkleHasher` (rather than `MerkleHasherLifted`)
+/// because lifted Merkle trees are not CUDA-friendly. This struct contains the proof data
+/// in a format compatible with the CUDA backend.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CairoProofCuda<H: MerkleHasher> {
+    pub claim: CairoClaim,
+    pub interaction_pow: u64,
+    pub interaction_claim: CairoInteractionClaim,
+    pub stark_proof: StarkProof<H>,
+    pub channel_salt: Option<u64>,
     pub preprocessed_trace_variant: PreProcessedTraceVariant,
 }
 
@@ -689,6 +706,32 @@ impl CairoComponents {
             verify_bitwise_xor_8: verify_bitwise_xor_8_component,
             verify_bitwise_xor_9: verify_bitwise_xor_9_component,
         }
+    }
+
+    pub fn provers_cuda(&self) -> Vec<&dyn ComponentProver<CudaBackend>> {
+        chain!(
+            self.opcodes.provers_cuda(),
+            [&self.verify_instruction as &dyn ComponentProver<CudaBackend>,],
+            self.blake_context.provers_cuda(),
+            self.builtins.provers_cuda(),
+            self.pedersen_context.provers_cuda(),
+            self.pedersen_narrow_windows_context.provers_cuda(),
+            self.poseidon_context.provers_cuda(),
+            [&self.memory_address_to_id as &dyn ComponentProver<CudaBackend>,],
+            self.memory_id_to_value
+                .0
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+            [&self.memory_id_to_value.1 as &dyn ComponentProver<CudaBackend>,],
+            self.range_checks.provers_cuda(),
+            [
+                &self.verify_bitwise_xor_4 as &dyn ComponentProver<CudaBackend>,
+                &self.verify_bitwise_xor_7 as &dyn ComponentProver<CudaBackend>,
+                &self.verify_bitwise_xor_8 as &dyn ComponentProver<CudaBackend>,
+                &self.verify_bitwise_xor_9 as &dyn ComponentProver<CudaBackend>,
+            ]
+        )
+        .collect()
     }
 
     pub fn components(&self) -> Vec<&dyn Component> {

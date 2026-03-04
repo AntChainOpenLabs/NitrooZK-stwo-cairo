@@ -1,4 +1,6 @@
 use stwo::core::air::Component;
+use stwo::prover::backend::cuda::CudaBackend;
+use stwo::prover::ComponentProver;
 use stwo_constraint_framework::TraceLocationAllocator;
 
 use crate::claims::{CairoClaim, CairoInteractionClaim};
@@ -36,6 +38,13 @@ impl PedersenContextComponents {
         self.components
             .as_ref()
             .map(|c| c.components())
+            .unwrap_or_default()
+    }
+
+    pub fn provers_cuda(&self) -> Vec<&dyn ComponentProver<CudaBackend>> {
+        self.components
+            .as_ref()
+            .map(|c| c.provers_cuda())
             .unwrap_or_default()
     }
 }
@@ -108,6 +117,14 @@ impl Components {
             &self.pedersen_aggregator,
             &self.partial_ec_mul,
             &self.pedersen_points_table,
+        ]
+    }
+
+    pub fn provers_cuda(&self) -> Vec<&dyn ComponentProver<CudaBackend>> {
+        vec![
+            &self.pedersen_aggregator as &dyn ComponentProver<CudaBackend>,
+            &self.partial_ec_mul as &dyn ComponentProver<CudaBackend>,
+            &self.pedersen_points_table as &dyn ComponentProver<CudaBackend>,
         ]
     }
 }

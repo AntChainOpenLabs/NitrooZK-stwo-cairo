@@ -1,5 +1,7 @@
 use itertools::Itertools;
 use stwo::core::air::Component;
+use stwo::prover::backend::cuda::CudaBackend;
+use stwo::prover::ComponentProver;
 use stwo_constraint_framework::TraceLocationAllocator;
 
 use super::components::display_components;
@@ -452,6 +454,111 @@ impl OpcodeComponents {
                 .map(|component| component as &dyn Component),
         );
         vec.extend(self.ret.iter().map(|component| component as &dyn Component));
+        vec
+    }
+
+    pub fn provers_cuda(&self) -> Vec<&dyn ComponentProver<CudaBackend>> {
+        let mut vec: Vec<&dyn ComponentProver<CudaBackend>> = vec![];
+        vec.extend(
+            self.add
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.add_small
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.add_ap
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.assert_eq
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.assert_eq_imm
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.assert_eq_double_deref
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.blake
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.call
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.call_rel_imm
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.generic
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.jnz
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.jnz_taken
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.jump
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.jump_double_deref
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.jump_rel
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.jump_rel_imm
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.mul
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.mul_small
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.qm31
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
+        vec.extend(
+            self.ret
+                .iter()
+                .map(|component| component as &dyn ComponentProver<CudaBackend>),
+        );
         vec
     }
 }

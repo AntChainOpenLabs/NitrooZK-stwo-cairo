@@ -1,4 +1,6 @@
 use stwo::core::air::Component;
+use stwo::prover::backend::cuda::CudaBackend;
+use stwo::prover::ComponentProver;
 use stwo_constraint_framework::TraceLocationAllocator;
 
 use crate::claims::{CairoClaim, CairoInteractionClaim};
@@ -32,6 +34,13 @@ impl BlakeContextComponents {
         self.components
             .as_ref()
             .map(|c| c.components())
+            .unwrap_or_default()
+    }
+
+    pub fn provers_cuda(&self) -> Vec<&dyn ComponentProver<CudaBackend>> {
+        self.components
+            .as_ref()
+            .map(|c| c.provers_cuda())
             .unwrap_or_default()
     }
 }
@@ -118,6 +127,16 @@ impl Components {
             &self.blake_sigma,
             &self.triple_xor_32,
             &self.verify_bitwise_xor_12,
+        ]
+    }
+
+    pub fn provers_cuda(&self) -> Vec<&dyn ComponentProver<CudaBackend>> {
+        vec![
+            &self.blake_round as &dyn ComponentProver<CudaBackend>,
+            &self.blake_g as &dyn ComponentProver<CudaBackend>,
+            &self.blake_sigma as &dyn ComponentProver<CudaBackend>,
+            &self.triple_xor_32 as &dyn ComponentProver<CudaBackend>,
+            &self.verify_bitwise_xor_12 as &dyn ComponentProver<CudaBackend>,
         ]
     }
 }

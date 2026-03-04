@@ -1,4 +1,6 @@
 use stwo::core::air::Component;
+use stwo::prover::backend::cuda::CudaBackend;
+use stwo::prover::ComponentProver;
 use stwo_constraint_framework::TraceLocationAllocator;
 
 use crate::claims::{CairoClaim, CairoInteractionClaim};
@@ -33,6 +35,13 @@ impl PoseidonContextComponents {
         self.components
             .as_ref()
             .map(|c| c.components())
+            .unwrap_or_default()
+    }
+
+    pub fn provers_cuda(&self) -> Vec<&dyn ComponentProver<CudaBackend>> {
+        self.components
+            .as_ref()
+            .map(|c| c.provers_cuda())
             .unwrap_or_default()
     }
 }
@@ -137,6 +146,17 @@ impl Components {
             &self.cube_252,
             &self.poseidon_round_keys,
             &self.range_check_252_width_27,
+        ]
+    }
+
+    pub fn provers_cuda(&self) -> Vec<&dyn ComponentProver<CudaBackend>> {
+        vec![
+            &self.poseidon_aggregator as &dyn ComponentProver<CudaBackend>,
+            &self.poseidon_3_partial_rounds_chain as &dyn ComponentProver<CudaBackend>,
+            &self.poseidon_full_round_chain as &dyn ComponentProver<CudaBackend>,
+            &self.cube_252 as &dyn ComponentProver<CudaBackend>,
+            &self.poseidon_round_keys as &dyn ComponentProver<CudaBackend>,
+            &self.range_check_252_width_27 as &dyn ComponentProver<CudaBackend>,
         ]
     }
 }

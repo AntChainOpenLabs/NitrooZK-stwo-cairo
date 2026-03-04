@@ -1,4 +1,6 @@
 use stwo::core::air::Component;
+use stwo::prover::backend::cuda::CudaBackend;
+use stwo::prover::ComponentProver;
 use stwo_constraint_framework::TraceLocationAllocator;
 
 use crate::claims::{CairoClaim, CairoInteractionClaim};
@@ -154,6 +156,35 @@ impl BuiltinComponents {
         }
         if let Some(range_check_128_builtin) = &self.range_check_128_builtin {
             vec.push(range_check_128_builtin as &dyn Component);
+        }
+        vec
+    }
+
+    pub fn provers_cuda(&self) -> Vec<&dyn ComponentProver<CudaBackend>> {
+        let mut vec: Vec<&dyn ComponentProver<CudaBackend>> = vec![];
+        if let Some(add_mod_builtin) = &self.add_mod_builtin {
+            vec.push(add_mod_builtin as &dyn ComponentProver<CudaBackend>);
+        }
+        if let Some(bitwise_builtin) = &self.bitwise_builtin {
+            vec.push(bitwise_builtin as &dyn ComponentProver<CudaBackend>);
+        }
+        if let Some(mul_mod_builtin) = &self.mul_mod_builtin {
+            vec.push(mul_mod_builtin as &dyn ComponentProver<CudaBackend>);
+        }
+        if let Some(pedersen_builtin) = &self.pedersen_builtin {
+            vec.push(pedersen_builtin as &dyn ComponentProver<CudaBackend>);
+        }
+        if let Some(pedersen_builtin_narrow_windows) = &self.pedersen_builtin_narrow_windows {
+            vec.push(pedersen_builtin_narrow_windows as &dyn ComponentProver<CudaBackend>);
+        }
+        if let Some(poseidon_builtin) = &self.poseidon_builtin {
+            vec.push(poseidon_builtin as &dyn ComponentProver<CudaBackend>);
+        }
+        if let Some(range_check_96_builtin) = &self.range_check_96_builtin {
+            vec.push(range_check_96_builtin as &dyn ComponentProver<CudaBackend>);
+        }
+        if let Some(range_check_128_builtin) = &self.range_check_128_builtin {
+            vec.push(range_check_128_builtin as &dyn ComponentProver<CudaBackend>);
         }
         vec
     }
