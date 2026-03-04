@@ -1,0 +1,3 @@
+# Prevent GPU memory interference between tests
+[env]
+RUST_TEST_THREADS = "1"
