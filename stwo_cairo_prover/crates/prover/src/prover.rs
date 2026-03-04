@@ -17,8 +17,8 @@ use stwo::core::fri::FriConfig;
 use stwo::core::pcs::PcsConfig;
 use stwo::core::poly::circle::CanonicCoset;
 use stwo::core::proof_of_work::GrindOps;
-use stwo::core::vcs_lifted::blake2_merkle::{Blake2sM31MerkleChannel, Blake2sMerkleChannel};
-use stwo::core::vcs_lifted::merkle_hasher::MerkleHasherLifted;
+use stwo::core::vcs::blake2_merkle::{Blake2sM31MerkleChannel, Blake2sMerkleChannel};
+use stwo::core::vcs::MerkleHasher;
 use stwo::prover::backend::simd::SimdBackend;
 use stwo::prover::backend::BackendForChannel;
 use stwo::prover::poly::circle::PolyOps;
@@ -50,8 +50,8 @@ fn prove_verify_serialize<MC: MerkleChannel>(
 ) -> Result<()>
 where
     SimdBackend: BackendForChannel<MC>,
-    MC::H: MerkleHasherLifted + Serialize,
-    <MC::H as MerkleHasherLifted>::Hash: CairoSerialize,
+    MC::H: MerkleHasher + Serialize,
+    <MC::H as MerkleHasher>::Hash: CairoSerialize,
 {
     let cairo_proof = prove_cairo::<MC>(input, proof_params)?;
     if verify {
@@ -297,7 +297,7 @@ pub fn create_and_serialize_proof(
         }
         #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
         ChannelHash::Poseidon252 => {
-            use stwo::core::vcs_lifted::poseidon252_merkle::Poseidon252MerkleChannel;
+            use stwo::core::vcs::poseidon252_merkle::Poseidon252MerkleChannel;
             prove_verify_serialize::<Poseidon252MerkleChannel>(
                 input,
                 verify,
@@ -350,7 +350,7 @@ pub mod tests {
         use cairo_air::PreProcessedTraceVariant;
         use stwo::core::fri::FriConfig;
         use stwo::core::pcs::PcsConfig;
-        use stwo::core::vcs_lifted::poseidon252_merkle::Poseidon252MerkleChannel;
+        use stwo::core::vcs::poseidon252_merkle::Poseidon252MerkleChannel;
         use stwo_cairo_dev_utils::utils::get_proof_file_path;
         use stwo_cairo_dev_utils::vm_utils::{run_and_adapt, ProgramType};
         use stwo_cairo_serialize::CairoSerialize;

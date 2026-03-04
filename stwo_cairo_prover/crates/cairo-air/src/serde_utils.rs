@@ -2,13 +2,13 @@ use std::ops::Deref;
 
 use starknet_ff::FieldElement;
 use stwo::core::pcs::quotients::CommitmentSchemeProof;
-use stwo::core::vcs_lifted::MerkleHasherLifted;
+use stwo::core::vcs::MerkleHasher;
 use stwo_cairo_serialize::CairoSerialize;
 
 use crate::air::CairoProof;
 use crate::utils::sort_and_transpose_queried_values;
 
-impl<H: MerkleHasherLifted> CairoSerialize for CairoProof<H>
+impl<H: MerkleHasher> CairoSerialize for CairoProof<H>
 where
     H::Hash: CairoSerialize,
 {

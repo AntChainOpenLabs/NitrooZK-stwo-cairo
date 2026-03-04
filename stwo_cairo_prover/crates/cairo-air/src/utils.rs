@@ -15,11 +15,8 @@ use stwo::core::fields::m31::BaseField;
 use stwo::core::fields::qm31::{SecureField, SECURE_EXTENSION_DEGREE};
 use stwo::core::pcs::TreeVec;
 use stwo::core::vcs::blake2_hash::Blake2sHasher;
-use stwo::core::vcs_lifted::MerkleHasherLifted;
+use stwo::core::vcs::MerkleHasher;
 use stwo_cairo_serialize::{CairoDeserialize, CairoSerialize};
-use stwo_constraint_framework::{
-    INTERACTION_TRACE_IDX, ORIGINAL_TRACE_IDX, PREPROCESSED_TRACE_IDX,
-};
 use tracing::{span, Level};
 
 use crate::air::{CairoProof, MemorySection, PublicMemory};
@@ -86,7 +83,7 @@ pub fn binary_deserialize_from_file<T: DeserializeOwned>(
 }
 
 /// Serializes Cairo proof given the desired format and writes it to a file.
-pub fn serialize_proof_to_file<H: MerkleHasherLifted + Serialize>(
+pub fn serialize_proof_to_file<H: MerkleHasher + Serialize>(
     proof: &CairoProof<H>,
     proof_path: &Path,
     proof_format: ProofFormat,
@@ -128,7 +125,7 @@ where
 }
 
 /// Loads a Cairo proof for the Rust verifier from a file in the specified format.
-pub fn deserialize_proof_from_file<H: MerkleHasherLifted + DeserializeOwned>(
+pub fn deserialize_proof_from_file<H: MerkleHasher + DeserializeOwned>(
     proof_path: &Path,
     proof_format: ProofFormat,
 ) -> Result<CairoProofForRustVerifier<H>, std::io::Error>
@@ -230,58 +227,16 @@ pub fn encode_felt_in_limbs(felt: [u32; 8]) -> Vec<u32> {
 
 /// A utility function which transforms the order and layout of the queried values of a stwo proof
 /// according to the format expected by the Cairo verifier.
+///
+/// NOTE: In the CUDA-patched stwo, queried_values changed from `TreeVec<Vec<Vec<BaseField>>>`
+/// (per-column) to `TreeVec<Vec<BaseField>>` (flat per-tree). The sort-and-transpose logic
+/// is no longer applicable with the flat format — values are passed through as-is.
+/// TODO: Update the Cairo1 verifier to work with the new flat format if needed.
 pub fn sort_and_transpose_queried_values(
-    queried_values: &TreeVec<Vec<Vec<BaseField>>>,
-    trace_and_interaction_trace_log_sizes: Vec<&[u32]>,
+    queried_values: &TreeVec<Vec<BaseField>>,
+    _trace_and_interaction_trace_log_sizes: Vec<&[u32]>,
 ) -> TreeVec<Vec<BaseField>> {
-    debug_assert!(trace_and_interaction_trace_log_sizes[PREPROCESSED_TRACE_IDX].is_empty());
-    debug_assert!(trace_and_interaction_trace_log_sizes.len() == 3);
-
-    let mut new_queried_values_per_tree = vec![];
-    let n_queries = queried_values[0][0].len();
-    // Transpose the preprocessed queried values. The preprocessed columns are already sorted in
-    // ascending order so there is no need to sort the values.
-    let pp_queried_values = &queried_values.first().unwrap();
-    let mut new_queried_values: Vec<BaseField> = vec![];
-    for row_idx in 0..n_queries {
-        new_queried_values.extend(pp_queried_values.iter().map(|vals| vals[row_idx]));
-    }
-    new_queried_values_per_tree.push(new_queried_values);
-
-    // Sort and transpose the queried values of the base trace and interaction trace.
-    for (queried_values, col_sizes) in queried_values[ORIGINAL_TRACE_IDX..=INTERACTION_TRACE_IDX]
-        .iter()
-        .zip_eq(
-            trace_and_interaction_trace_log_sizes[ORIGINAL_TRACE_IDX..=INTERACTION_TRACE_IDX]
-                .iter(),
-        )
-    {
-        let mut new_queried_values = vec![];
-        let mut sorted_queries: Vec<_> = queried_values
-            .iter()
-            .zip_eq(col_sizes.iter())
-            .sorted_by_key(|(_, col_size)| *col_size)
-            .map(|(vals, _)| vals.iter())
-            .collect();
-        for _ in 0..n_queries {
-            new_queried_values.extend(
-                sorted_queries
-                    .iter_mut()
-                    .map(|col_iter| *col_iter.next().unwrap()),
-            );
-        }
-        new_queried_values_per_tree.push(new_queried_values)
-    }
-
-    // Transpose the queried values of the composition polynomial commitment. All columns
-    // in the composition commitment are of the same length so there is no need to sort.
-    let composition_queried_values = &queried_values.last().unwrap();
-    let mut new_queried_values: Vec<BaseField> = vec![];
-    for row_idx in 0..n_queries {
-        new_queried_values.extend(composition_queried_values.iter().map(|vals| vals[row_idx]));
-    }
-    new_queried_values_per_tree.push(new_queried_values);
-    TreeVec(new_queried_values_per_tree)
+    queried_values.clone()
 }
 
 #[cfg(test)]

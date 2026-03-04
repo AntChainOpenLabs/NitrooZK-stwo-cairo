@@ -7,8 +7,8 @@ use stwo::core::pcs::PcsConfig;
 use stwo::core::poly::line::LinePoly;
 use stwo::core::proof::StarkProof;
 use stwo::core::vcs::blake2_hash::Blake2sHash;
-use stwo::core::vcs_lifted::verifier::MerkleDecommitmentLifted;
-use stwo::core::vcs_lifted::MerkleHasherLifted;
+use stwo::core::vcs::verifier::MerkleDecommitment;
+use stwo::core::vcs::MerkleHasher;
 // Make derive macro available.
 pub use stwo_cairo_serialize_derive::CairoSerialize;
 
@@ -47,13 +47,14 @@ impl CairoSerialize for SecureField {
     }
 }
 
-impl<H: MerkleHasherLifted> CairoSerialize for MerkleDecommitmentLifted<H>
+impl<H: MerkleHasher> CairoSerialize for MerkleDecommitment<H>
 where
     H::Hash: CairoSerialize,
 {
     fn serialize(&self, output: &mut Vec<FieldElement>) {
-        let Self { hash_witness } = self;
+        let Self { hash_witness, column_witness } = self;
         hash_witness.serialize(output);
+        column_witness.serialize(output);
     }
 }
 
@@ -64,7 +65,7 @@ impl CairoSerialize for LinePoly {
     }
 }
 
-impl<H: MerkleHasherLifted> CairoSerialize for FriLayerProof<H>
+impl<H: MerkleHasher> CairoSerialize for FriLayerProof<H>
 where
     H::Hash: CairoSerialize,
 {
@@ -80,7 +81,7 @@ where
     }
 }
 
-impl<H: MerkleHasherLifted> CairoSerialize for FriProof<H>
+impl<H: MerkleHasher> CairoSerialize for FriProof<H>
 where
     H::Hash: CairoSerialize,
 {
@@ -128,7 +129,7 @@ impl CairoSerialize for PcsConfig {
     }
 }
 
-impl<H: MerkleHasherLifted> CairoSerialize for CommitmentSchemeProof<H>
+impl<H: MerkleHasher> CairoSerialize for CommitmentSchemeProof<H>
 where
     H::Hash: CairoSerialize,
 {
@@ -152,7 +153,7 @@ where
     }
 }
 
-impl<H: MerkleHasherLifted> CairoSerialize for StarkProof<H>
+impl<H: MerkleHasher> CairoSerialize for StarkProof<H>
 where
     H::Hash: CairoSerialize,
 {

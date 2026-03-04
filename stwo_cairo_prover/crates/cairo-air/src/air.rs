@@ -9,7 +9,7 @@ use stwo::core::fields::m31::M31;
 use stwo::core::fields::qm31::QM31;
 use stwo::core::fields::FieldExpOps;
 use stwo::core::proof::{ExtendedStarkProof, StarkProof};
-use stwo::core::vcs_lifted::MerkleHasherLifted;
+use stwo::core::vcs::MerkleHasher;
 use stwo_cairo_common::prover_types::cpu::{CasmState, FELT252_BITS_PER_WORD, FELT252_N_WORDS};
 use stwo_cairo_common::prover_types::felt::{split, split_f252};
 use stwo_cairo_serialize::{CairoDeserialize, CairoSerialize};
@@ -57,7 +57,7 @@ use crate::PreProcessedTraceVariant;
 ///   (see `serde_utils.rs`), which transforms the proof into a format compatible with the Cairo1
 ///   verifier.
 #[derive(Clone, Serialize, Deserialize)]
-pub struct CairoProof<H: MerkleHasherLifted> {
+pub struct CairoProof<H: MerkleHasher> {
     pub claim: CairoClaim,
     pub interaction_pow: u64,
     pub interaction_claim: CairoInteractionClaim,
@@ -74,7 +74,7 @@ pub struct CairoProof<H: MerkleHasherLifted> {
 /// The key difference from [`CairoProof`] is that this format uses [`StarkProof`] instead of
 /// [`ExtendedStarkProof`], discarding auxiliary data not needed by the Rust verifier.
 #[derive(Clone, Serialize, Deserialize)]
-pub struct CairoProofForRustVerifier<H: MerkleHasherLifted> {
+pub struct CairoProofForRustVerifier<H: MerkleHasher> {
     pub claim: CairoClaim,
     pub interaction_pow: u64,
     pub interaction_claim: CairoInteractionClaim,
@@ -774,7 +774,7 @@ impl std::fmt::Display for CairoComponents {
     }
 }
 
-impl<H: MerkleHasherLifted> From<CairoProof<H>> for CairoProofForRustVerifier<H> {
+impl<H: MerkleHasher> From<CairoProof<H>> for CairoProofForRustVerifier<H> {
     fn from(extended_cairo_proof: CairoProof<H>) -> Self {
         let CairoProof {
             claim,
