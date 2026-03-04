@@ -304,72 +304,17 @@ mod tests {
 
     #[test]
     fn test_sort_queried_values() {
-        let trace_and_interaction_trace_log_sizes = [vec![], vec![4, 3, 2, 1], vec![4, 1, 3, 2]];
-        let trace_and_interaction_trace_log_sizes: Vec<&[u32]> =
-            trace_and_interaction_trace_log_sizes
-                .iter()
-                .map(|v| v.as_slice())
-                .collect();
-        let unsorted_queried_values = TreeVec(vec![
-            vec![
-                vec![M31::from(1), M31::from(2)],
-                vec![M31::from(3), M31::from(4)],
-                vec![M31::from(5), M31::from(6)],
-            ],
-            vec![
-                vec![M31::from(1), M31::from(2)],
-                vec![M31::from(3), M31::from(4)],
-                vec![M31::from(5), M31::from(6)],
-                vec![M31::from(7), M31::from(8)],
-            ],
-            vec![
-                vec![M31::from(1), M31::from(2)],
-                vec![M31::from(3), M31::from(4)],
-                vec![M31::from(5), M31::from(6)],
-                vec![M31::from(7), M31::from(8)],
-            ],
-            vec![vec![M31::from(1), M31::from(2)]; 8],
+        // With the flat queried_values format (Vec<BaseField> per tree),
+        // sort_and_transpose is a passthrough (identity clone).
+        let queried_values = TreeVec(vec![
+            vec![M31::from(1), M31::from(2), M31::from(3)],
+            vec![M31::from(4), M31::from(5), M31::from(6), M31::from(7)],
+            vec![M31::from(8), M31::from(9)],
         ]);
-        let sorted_queried_values = TreeVec(vec![
-            vec![
-                M31::from(1),
-                M31::from(3),
-                M31::from(5),
-                M31::from(2),
-                M31::from(4),
-                M31::from(6),
-            ],
-            vec![
-                M31::from(7),
-                M31::from(5),
-                M31::from(3),
-                M31::from(1),
-                M31::from(8),
-                M31::from(6),
-                M31::from(4),
-                M31::from(2),
-            ],
-            vec![
-                M31::from(3),
-                M31::from(7),
-                M31::from(5),
-                M31::from(1),
-                M31::from(4),
-                M31::from(8),
-                M31::from(6),
-                M31::from(2),
-            ],
-            [[M31::from(1); 8], [M31::from(2); 8]].concat(),
-        ]);
+        let log_sizes: Vec<&[u32]> = vec![&[3, 2], &[4, 3, 2, 1], &[4, 1]];
 
-        assert_eq!(
-            sorted_queried_values.0,
-            sort_and_transpose_queried_values(
-                &unsorted_queried_values,
-                trace_and_interaction_trace_log_sizes
-            )
-            .0
-        );
+        let result = sort_and_transpose_queried_values(&queried_values, log_sizes);
+        assert_eq!(queried_values.0, result.0);
     }
 
     // TODO(Leo): add tests for serializing and deserializing the proof for rust verifier.

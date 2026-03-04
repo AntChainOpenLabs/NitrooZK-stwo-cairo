@@ -590,7 +590,7 @@ pub mod tests {
         use std::io::Write;
         use std::process::Command;
 
-        use cairo_air::verifier::{verify_cairo, verify_cairo_cuda};
+        use cairo_air::verifier::verify_cairo;
         use cairo_air::CairoProofForRustVerifier;
         use itertools::Itertools;
         use stwo::core::fri::FriConfig;
@@ -1044,6 +1044,7 @@ pub mod tests {
             use test_log::test;
 
             use super::*;
+            use crate::prover::prove_cairo_cuda_v0;
 
             #[test]
             fn test_e2e_prove_cuda_v0_all_opcode_components() {
