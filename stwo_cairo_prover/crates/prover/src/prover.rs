@@ -8,7 +8,7 @@ use cairo_air::claims::lookup_sum;
 use cairo_air::relations::CommonLookupElements;
 use cairo_air::utils::{serialize_proof_to_file, ProofFormat};
 use cairo_air::verifier::{verify_cairo_ex, INTERACTION_POW_BITS};
-use cairo_air::{CairoProof, PreProcessedTraceVariant};
+use cairo_air::{CairoProof, CairoProofCuda, PreProcessedTraceVariant};
 use num_traits::Zero;
 use serde::{Deserialize, Serialize};
 use stwo::core::channel::{Channel, MerkleChannel};
@@ -191,6 +191,166 @@ where
         interaction_claim,
         extended_stark_proof: proof,
         channel_salt,
+        preprocessed_trace_variant: prover_params.preprocessed_trace,
+    })
+}
+
+/// CUDA V0 proving path: SIMD trace generation, GPU constraint evaluation.
+///
+/// This function generates the witness traces using SIMD (same as `prove_cairo`),
+/// converts them to CUDA format, then uses CudaBackend for the STARK proving step
+/// (commitment scheme, FRI, and constraint evaluation on GPU).
+///
+/// Uses non-lifted MerkleHasher for CUDA compatibility.
+pub fn prove_cairo_cuda_v0<MC: MerkleChannel>(
+    input: ProverInput,
+    prover_params: ProverParameters,
+) -> Result<CairoProofCuda<MC::H>, ProvingError>
+where
+    stwo::prover::backend::cuda::CudaBackend: BackendForChannel<MC>,
+    SimdBackend: BackendForChannel<MC>,
+{
+    use stwo::prover::backend::cuda::CudaBackend;
+    use stwo::prover::prove;
+
+    let _span = span!(Level::INFO, "prove_cairo_cuda_v0").entered();
+    let ProverParameters {
+        channel_hash: _,
+        channel_salt,
+        pcs_config,
+        preprocessed_trace,
+        store_polynomials_coefficients,
+        include_all_preprocessed_columns: _,
+    } = prover_params;
+
+    stwo::stwo_cuda::print_cuda_memory("[V0] START");
+
+    let cairo_air_log_degree_bound = 1;
+    let max_domain_size = LOG_MAX_ROWS
+        + std::cmp::max(
+            cairo_air_log_degree_bound,
+            pcs_config.fri_config.log_blowup_factor,
+        );
+
+    // Use CudaBackend for twiddles and commitment scheme.
+    tracing::info!("[V0] Computing twiddles for CUDA backend");
+    let twiddles = CudaBackend::precompute_twiddles(
+        CanonicCoset::new(max_domain_size)
+            .circle_domain()
+            .half_coset,
+    );
+    stwo::stwo_cuda::print_cuda_memory("[V0] After twiddles");
+
+    // Setup protocol with CudaBackend.
+    let channel = &mut MC::C::default();
+    // CUDA path uses Option<u64> salt semantics: only mix if non-zero.
+    if channel_salt != 0 {
+        channel.mix_u64(channel_salt as u64);
+    }
+    pcs_config.mix_into(channel);
+    let mut commitment_scheme =
+        CommitmentSchemeProver::<CudaBackend, MC>::new(pcs_config, &twiddles);
+    if store_polynomials_coefficients {
+        commitment_scheme.set_store_polynomials_coefficients();
+    }
+
+    // Preprocessed trace — generate on GPU.
+    tracing::info!("[V0] Generating preprocessed trace");
+    let preprocessed_trace = Arc::new(preprocessed_trace.to_preprocessed_trace());
+    let evals =
+        crate::witness::preprocessed_trace_cuda::gen_preprocessed_trace_cuda(&preprocessed_trace);
+    let polys =
+        crate::witness::preprocessed_trace_cuda::interpolate_columns_batched(evals, &twiddles);
+    stwo::stwo_cuda::print_cuda_memory("[V0] After preprocessed interpolation");
+    let mut tree_builder = commitment_scheme.tree_builder();
+    tree_builder.extend_polys(polys);
+    tree_builder.commit(channel);
+    stwo::stwo_cuda::print_cuda_memory("[V0] After preprocessed commit");
+
+    // Base trace — pure SIMD using SimdTraceCollector, then convert to CUDA.
+    tracing::info!("[V0] Generating base trace (SIMD -> CUDA)");
+    let cairo_claim_generator = create_cairo_claim_generator(input, preprocessed_trace.clone());
+    let mut simd_tree_builder = crate::witness::cairo_cuda::SimdTraceCollector::new(1);
+    let span = span!(Level::INFO, "Base trace (SIMD)").entered();
+    let (claim, interaction_generator) = cairo_claim_generator.write_trace(&mut simd_tree_builder);
+    span.exit();
+
+    // Convert SIMD traces to CUDA and commit.
+    let mut tree_builder = commitment_scheme.tree_builder();
+    simd_tree_builder.extend_cuda_tree_builder(&mut tree_builder);
+    stwo::stwo_cuda::print_cuda_memory("[V0] After base trace extend");
+    claim.mix_into(channel);
+    tree_builder.commit(channel);
+    stwo::stwo_cuda::print_cuda_memory("[V0] After base trace commit");
+
+    // Draw interaction elements.
+    let interaction_pow = CudaBackend::grind(channel, INTERACTION_POW_BITS);
+    channel.mix_u64(interaction_pow);
+    let interaction_elements = CommonLookupElements::draw(channel);
+
+    // Interaction trace — pure SIMD, convert to CUDA.
+    tracing::info!("[V0] Generating interaction trace (SIMD -> CUDA)");
+    let mut simd_tree_builder = crate::witness::cairo_cuda::SimdTraceCollector::new(2);
+    let span = span!(Level::INFO, "Interaction trace (SIMD)").entered();
+    let interaction_claim = interaction_generator
+        .write_interaction_trace(&mut simd_tree_builder, &interaction_elements);
+    span.exit();
+
+    let mut tree_builder = commitment_scheme.tree_builder();
+    simd_tree_builder.extend_cuda_tree_builder(&mut tree_builder);
+    stwo::stwo_cuda::print_cuda_memory("[V0] After interaction trace extend");
+
+    tracing::info!(
+        "[V0] Witness trace cells: {:?}",
+        witness_trace_cells(&claim, &preprocessed_trace)
+    );
+
+    // Validate lookup argument.
+    debug_assert_eq!(
+        lookup_sum(&claim, &interaction_elements, &interaction_claim),
+        SecureField::zero()
+    );
+
+    interaction_claim.mix_into(channel);
+    tree_builder.commit(channel);
+    stwo::stwo_cuda::print_cuda_memory("[V0] After interaction trace commit");
+
+    // Component provers with CUDA backend.
+    let component_builder = CairoComponents::new(
+        &claim,
+        &interaction_elements,
+        &interaction_claim,
+        &preprocessed_trace.ids(),
+    );
+    let components = component_builder.provers_cuda();
+    stwo::stwo_cuda::print_cuda_memory("[V0] After provers_cuda");
+
+    // Prove STARK with CudaBackend.
+    let span = span!(Level::INFO, "Prove STARKs (CUDA V0)").entered();
+    stwo::stwo_cuda::print_cuda_memory("[V0] Before prove()");
+    let proof = prove::<CudaBackend, _>(&components, channel, commitment_scheme)?;
+    stwo::stwo_cuda::print_cuda_memory("[V0] After prove()");
+    span.exit();
+
+    event!(
+        name: "component_info",
+        Level::DEBUG,
+        "Components: {}",
+        component_builder
+    );
+
+    let cuda_channel_salt = if channel_salt != 0 {
+        Some(channel_salt as u64)
+    } else {
+        None
+    };
+
+    Ok(CairoProofCuda {
+        claim,
+        interaction_pow,
+        interaction_claim,
+        stark_proof: proof,
+        channel_salt: cuda_channel_salt,
         preprocessed_trace_variant: prover_params.preprocessed_trace,
     })
 }
@@ -430,12 +590,12 @@ pub mod tests {
         use std::io::Write;
         use std::process::Command;
 
-        use cairo_air::verifier::verify_cairo;
+        use cairo_air::verifier::{verify_cairo, verify_cairo_cuda};
         use cairo_air::CairoProofForRustVerifier;
         use itertools::Itertools;
         use stwo::core::fri::FriConfig;
         use stwo::core::pcs::PcsConfig;
-        use stwo::core::vcs_lifted::blake2_merkle::Blake2sMerkleChannel;
+        use stwo::core::vcs::blake2_merkle::Blake2sMerkleChannel;
         use stwo_cairo_common::preprocessed_columns::preprocessed_trace::PreProcessedTrace;
         use stwo_cairo_dev_utils::utils::{get_compiled_cairo_program_path, get_proof_file_path};
         use stwo_cairo_serialize::CairoSerialize;
@@ -872,6 +1032,61 @@ pub mod tests {
                     pedersen_aggregator_log_size_b,
                     "Pedersen aggregator log size should be the same for both proof because it uses multiplicity"
                 );
+            }
+        }
+
+        pub mod cuda_tests {
+            use cairo_air::verifier::verify_cairo_cuda;
+            use stwo::core::fri::FriConfig;
+            use stwo::core::pcs::PcsConfig;
+            use stwo::core::vcs::blake2_merkle::Blake2sMerkleChannel;
+            use stwo_cairo_dev_utils::utils::get_compiled_cairo_program_path;
+            use test_log::test;
+
+            use super::*;
+
+            #[test]
+            fn test_e2e_prove_cuda_v0_all_opcode_components() {
+                let compiled_program =
+                    get_compiled_cairo_program_path("test_prove_verify_all_opcode_components");
+                let input = run_and_adapt(&compiled_program, ProgramType::Json, None).unwrap();
+                let prover_params = ProverParameters {
+                    channel_hash: ChannelHash::Blake2s,
+                    pcs_config: PcsConfig {
+                        pow_bits: 26,
+                        fri_config: FriConfig::new(0, 1, 70, 1),
+                        lifting_log_size: None,
+                    },
+                    preprocessed_trace: PreProcessedTraceVariant::CanonicalWithoutPedersen,
+                    channel_salt: 0,
+                    store_polynomials_coefficients: false,
+                    include_all_preprocessed_columns: false,
+                };
+                let cairo_proof =
+                    prove_cairo_cuda_v0::<Blake2sMerkleChannel>(input, prover_params).unwrap();
+                verify_cairo_cuda::<Blake2sMerkleChannel>(cairo_proof).unwrap();
+            }
+
+            #[test]
+            fn test_e2e_prove_cuda_v0_all_builtins() {
+                let compiled_program =
+                    get_compiled_cairo_program_path("test_prove_verify_all_builtins");
+                let input = run_and_adapt(&compiled_program, ProgramType::Json, None).unwrap();
+                let prover_params = ProverParameters {
+                    channel_hash: ChannelHash::Blake2s,
+                    pcs_config: PcsConfig {
+                        pow_bits: 26,
+                        fri_config: FriConfig::new(0, 1, 70, 1),
+                        lifting_log_size: None,
+                    },
+                    preprocessed_trace: PreProcessedTraceVariant::Canonical,
+                    channel_salt: 0,
+                    store_polynomials_coefficients: false,
+                    include_all_preprocessed_columns: false,
+                };
+                let cairo_proof =
+                    prove_cairo_cuda_v0::<Blake2sMerkleChannel>(input, prover_params).unwrap();
+                verify_cairo_cuda::<Blake2sMerkleChannel>(cairo_proof).unwrap();
             }
         }
     }

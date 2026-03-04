@@ -1,10 +1,12 @@
 pub mod builtins;
 pub mod cairo;
 pub mod cairo_claim_generator;
+pub mod cairo_cuda;
 pub mod components;
 pub mod fast_deduction;
 pub mod opcodes;
 pub mod prelude;
 pub mod preprocessed_trace;
+pub mod preprocessed_trace_cuda;
 pub mod range_checks;
 pub mod utils;
