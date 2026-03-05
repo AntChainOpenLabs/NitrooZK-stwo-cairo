@@ -1204,6 +1204,7 @@ pub mod tests {
         use stwo::core::fri::FriConfig;
         use stwo::core::pcs::PcsConfig;
         use stwo::core::vcs::blake2_merkle::Blake2sMerkleChannel;
+        use stwo_cairo_adapter::ProverInput;
         use stwo_cairo_dev_utils::utils::get_compiled_cairo_program_path;
         use stwo_cairo_dev_utils::vm_utils::{run_and_adapt, ProgramType};
         use test_log::test;
@@ -1211,6 +1212,63 @@ pub mod tests {
         use crate::prover::{
             prove_cairo_cuda, prove_cairo_cuda_v0, ChannelHash, ProverParameters,
         };
+
+        /// Load a CairoPie zip file and produce ProverInput via bootloader execution.
+        fn load_pie_input(pie_path: &std::path::Path) -> ProverInput {
+            use std::rc::Rc;
+
+            use cairo_program_runner_lib::tasks::create_pie_task;
+            use cairo_program_runner_lib::types::{HashFunc, RunMode};
+            use cairo_program_runner_lib::{
+                cairo_run_program, ProgramInput, SimpleBootloaderInput, TaskSpec,
+            };
+            use cairo_vm::types::layout_name::LayoutName;
+            use cairo_vm::types::program::Program;
+            use stwo_cairo_adapter::adapter::adapt;
+
+            let task = create_pie_task(pie_path).expect("Failed to load CairoPie zip");
+            let task_spec = TaskSpec {
+                task: Rc::new(task),
+                program_hash_function: HashFunc::Blake,
+            };
+            let bootloader_input = SimpleBootloaderInput {
+                fact_topologies_path: None,
+                single_page: true,
+                tasks: vec![task_spec],
+            };
+
+            let bootloader_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("proving-utils/crates/cairo-program-runner-lib/resources/compiled_programs/bootloaders/simple_bootloader_compiled.json");
+            let bootloader_program =
+                Program::from_file(bootloader_path.as_path(), Some("main"))
+                    .expect("Failed to load simple_bootloader_compiled.json");
+
+            let cairo_run_config = RunMode::Proof {
+                layout: LayoutName::all_cairo_stwo,
+                dynamic_layout_params: None,
+                disable_trace_padding: true,
+                relocate_mem: false,
+            }
+            .create_config();
+
+            let runner = cairo_run_program(
+                &bootloader_program,
+                Some(ProgramInput::Value(Box::new(bootloader_input))),
+                cairo_run_config,
+                None,
+            )
+            .expect("Failed to run PIE through bootloader");
+
+            adapt(&runner).expect("Failed to adapt runner to ProverInput")
+        }
 
         #[test]
         fn test_e2e_prove_cuda_v0_all_opcode_components() {
@@ -1300,6 +1358,93 @@ pub mod tests {
             let cairo_proof =
                 prove_cairo_cuda::<Blake2sMerkleChannel>(input, prover_params).unwrap();
             verify_cairo_cuda::<Blake2sMerkleChannel>(cairo_proof).unwrap();
+        }
+
+        // ==================== PIE File Tests ====================
+
+        fn load_pie_10_transfers_input() -> ProverInput {
+            load_pie_input(std::path::Path::new(
+                "/root/starkware/opensource/cairo_pie_10_transfers_with_6_ecop.zip",
+            ))
+        }
+
+        fn load_sn_pie_input() -> ProverInput {
+            load_pie_input(std::path::Path::new("/root/starkware/opensource/sn_pie"))
+        }
+
+        #[test]
+        fn test_prove_verify_pie_cuda_once() {
+            let input = load_pie_10_transfers_input();
+            let prover_params = ProverParameters {
+                channel_hash: ChannelHash::Blake2s,
+                pcs_config: PcsConfig::default(),
+                preprocessed_trace: PreProcessedTraceVariant::Canonical,
+                channel_salt: 0,
+                store_polynomials_coefficients: false,
+                include_all_preprocessed_columns: false,
+            };
+            let timer = std::time::Instant::now();
+            let cairo_proof =
+                prove_cairo_cuda::<Blake2sMerkleChannel>(input, prover_params).unwrap();
+            println!("CUDA proof generation time: {:?}", timer.elapsed());
+            verify_cairo_cuda::<Blake2sMerkleChannel>(cairo_proof).unwrap();
+        }
+
+        #[test]
+        fn test_prove_verify_pie_cuda_multi() {
+            let loop_count: usize = std::env::var("PROVE_LOOP_COUNT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(20);
+            for run in 0..loop_count {
+                println!("\n========== RUN {} ==========\n", run);
+                let input = load_pie_10_transfers_input();
+                let prover_params = ProverParameters {
+                    channel_hash: ChannelHash::Blake2s,
+                    pcs_config: PcsConfig::default(),
+                    preprocessed_trace: PreProcessedTraceVariant::Canonical,
+                    channel_salt: 0,
+                    store_polynomials_coefficients: false,
+                    include_all_preprocessed_columns: false,
+                };
+                let timer = std::time::Instant::now();
+                let cairo_proof =
+                    prove_cairo_cuda::<Blake2sMerkleChannel>(input, prover_params).unwrap();
+                println!("No.{} CUDA proof generation time: {:?}", run, timer.elapsed());
+                verify_cairo_cuda::<Blake2sMerkleChannel>(cairo_proof).unwrap();
+            }
+        }
+
+        // ==================== sn_pie Tests (Large ~25M Steps) ====================
+
+        #[test]
+        #[ignore = "sn_pie exceeds GPU memory; needs streaming spill path or multi-GPU"]
+        fn test_prove_verify_sn_pie_cuda_multi() {
+            let loop_count: usize = std::env::var("PROVE_LOOP_COUNT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(20);
+            for run in 0..loop_count {
+                println!("\n========== RUN {} ==========\n", run);
+                let input = load_sn_pie_input();
+                let prover_params = ProverParameters {
+                    channel_hash: ChannelHash::Blake2s,
+                    pcs_config: PcsConfig::default(),
+                    preprocessed_trace: PreProcessedTraceVariant::Canonical,
+                    channel_salt: 0,
+                    store_polynomials_coefficients: false,
+                    include_all_preprocessed_columns: false,
+                };
+                let timer = std::time::Instant::now();
+                let cairo_proof =
+                    prove_cairo_cuda::<Blake2sMerkleChannel>(input, prover_params).unwrap();
+                println!(
+                    "No.{} sn_pie CUDA proof generation time: {:?}",
+                    run,
+                    timer.elapsed()
+                );
+                verify_cairo_cuda::<Blake2sMerkleChannel>(cairo_proof).unwrap();
+            }
         }
     }
 }
