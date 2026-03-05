@@ -374,14 +374,8 @@ where
     use stwo::prover::backend::cuda::CudaBackend;
     use stwo::prover::prove;
 
-    // Fall back to V0 (SIMD + bridge) for workloads that use poseidon.
-    // Reason: poseidon_aggregator (342 trace columns) has no CUDA port, and the monolithic
-    // poseidon_builtin CUDA kernel (341 cols) is incompatible with v1.1.0's split architecture
-    // (poseidon_builtin: 6 cols + poseidon_aggregator: 342 cols).
-    if input.builtin_segments.poseidon_builtin.is_some() {
-        tracing::info!("[CUDA] Poseidon detected — falling back to V0 path");
-        return prove_cairo_cuda_v0(input, prover_params);
-    }
+    // Poseidon workloads now use SIMD hybrid pipeline (poseidon_builtin + poseidon_aggregator
+    // via SIMD, chain sub-components via CUDA). No V0 fallback needed.
 
     let _span = span!(Level::INFO, "prove_cairo_cuda").entered();
     let ProverParameters {

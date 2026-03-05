@@ -35,9 +35,9 @@ type SmallTrace = Vec<CircleEvaluation<SimdBackend, M31, BitReversedOrder>>;
 /// The separation is done to reduce zeroed out ('unused') trace cells.
 pub struct ClaimGenerator {
     big_values: Vec<[u32; 8]>,
-    big_mults: AtomicMultiplicityColumn,
+    pub big_mults: AtomicMultiplicityColumn,
     small_values: Vec<u128>,
-    small_mults: AtomicMultiplicityColumn,
+    pub small_mults: AtomicMultiplicityColumn,
 }
 impl ClaimGenerator {
     pub fn new(mem: Arc<Memory>) -> Self {
