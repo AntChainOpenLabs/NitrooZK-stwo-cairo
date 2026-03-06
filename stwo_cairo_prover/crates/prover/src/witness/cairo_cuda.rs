@@ -10,6 +10,7 @@
 use std::array;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Instant;
 
 use cairo_air::claims::{CairoClaim, CairoInteractionClaim};
 use cairo_air::relations::CommonLookupElements;
@@ -59,8 +60,14 @@ use crate::witness::utils::TreeBuilder;
 
 use cairo_air::air::{MemorySmallValue, PublicData, PublicMemory, PublicSegmentRanges, SegmentRange};
 
-// SIMD components for poseidon encapsulated CUDA wrappers
-use super::components::{memory_address_to_id, poseidon_aggregator};
+// SIMD components for encapsulated CUDA wrappers (poseidon + pedersen narrow)
+use super::components::{
+    memory_address_to_id, memory_id_to_big, poseidon_aggregator,
+    pedersen_builtin_narrow_windows, pedersen_aggregator_window_bits_9,
+    partial_ec_mul_window_bits_9, pedersen_points_table_window_bits_9,
+    range_check_8, range_check_9_9, range_check_20,
+};
+use stwo_constraint_framework::preprocessed_columns::PreProcessedColumnId;
 
 // ---------------------------------------------------------------------------
 // Conversion utilities
@@ -355,6 +362,20 @@ fn build_instruction_cache(casm_states: &CasmStatesByOpcode, memory: &Memory) ->
 // Native CUDA path: NativeCairoCudaClaimGenerator
 // ---------------------------------------------------------------------------
 
+/// Determines which pedersen component variant to use.
+///
+/// - `Wide` (Canonical, window_bits_18): native CUDA kernels for pedersen_builtin + context.
+/// - `Narrow` (CanonicalSmall, window_bits_9): SIMD fallback — tiny tables, not worth CUDA port.
+enum PedersenVariant {
+    Wide {
+        pedersen_builtin_cuda: Option<pedersen_builtin_cuda::CudaClaimGenerator>,
+        pedersen_context_cuda: Option<PedersenContextCudaClaimGenerator>,
+    },
+    Narrow {
+        pedersen_segment: Option<(u32, u32)>, // (log_size, segment_start)
+    },
+}
+
 /// Cairo claim generator with native CUDA acceleration for all core components.
 ///
 /// Uses CUDA for: opcodes, verify_instruction, memory_address_to_id,
@@ -393,14 +414,13 @@ pub struct NativeCairoCudaClaimGenerator {
     mul_mod_builtin_cuda: Option<mul_mod_builtin_cuda::CudaClaimGenerator>,
     range_check96_builtin_cuda: Option<range_check_bits_96_builtin_cuda::CudaClaimGenerator>,
     range_check_builtin_cuda: Option<range_check_bits_128_builtin_cuda::CudaClaimGenerator>,
-    pedersen_builtin_cuda: Option<pedersen_builtin_cuda::CudaClaimGenerator>,
     #[allow(dead_code)] // Monolithic kernel incompatible with split AIR interaction trace
     poseidon_builtin_cuda: Option<poseidon_builtin_cuda::CudaClaimGenerator>,
     /// Poseidon segment info (log_size, segment_start) for encapsulated poseidon_builtin path.
     poseidon_segment: Option<(u32, u32)>,
 
-    // Pedersen context (CUDA wrapper)
-    pedersen_context_cuda: Option<PedersenContextCudaClaimGenerator>,
+    // Pedersen variant (Wide = CUDA kernels, Narrow = SIMD fallback)
+    pedersen_variant: PedersenVariant,
 
     // Poseidon context (CUDA wrapper)
     poseidon_context_cuda: Option<PoseidonContextCudaClaimGenerator>,
@@ -523,10 +543,6 @@ impl NativeCairoCudaClaimGenerator {
             range_check_bits_128_builtin_cuda,
             RANGE_CHECK_BUILTIN_MEMORY_CELLS
         );
-        let pedersen_builtin_cuda_gen = builtin_segments.pedersen_builtin.map(|seg| {
-            let n = (seg.stop_ptr - seg.begin_addr) / PEDERSEN_BUILTIN_MEMORY_CELLS;
-            pedersen_builtin_cuda::CudaClaimGenerator::new(n.ilog2(), seg.begin_addr as u32)
-        });
         // poseidon_builtin uses SIMD hybrid path (the monolithic CUDA kernel's interaction
         // trace is incompatible with the split v1.1.0 AIR). Store segment info for SIMD path.
         let poseidon_segment = builtin_segments.poseidon_builtin.map(|seg| {
@@ -534,13 +550,35 @@ impl NativeCairoCudaClaimGenerator {
             (n.ilog2(), seg.begin_addr as u32)
         });
 
-        // --- Pedersen context CUDA wrapper (conditional) ---
-        let pedersen_context_cuda = if has_pedersen {
-            Some(PedersenContextCudaClaimGenerator::new(
-                preprocessed_trace.clone(),
-            ))
+        // --- Pedersen variant detection ---
+        // CanonicalSmall uses pedersen_points_small_0 (window_bits_9, 512-row tables).
+        // Canonical uses pedersen_points_0 (window_bits_18, 262K-row tables).
+        let is_narrow = preprocessed_trace.has_column(&PreProcessedColumnId {
+            id: "pedersen_points_small_0".to_owned(),
+        });
+        let pedersen_variant = if is_narrow {
+            PedersenVariant::Narrow {
+                pedersen_segment: builtin_segments.pedersen_builtin.map(|seg| {
+                    let n = (seg.stop_ptr - seg.begin_addr) / PEDERSEN_BUILTIN_MEMORY_CELLS;
+                    (n.ilog2(), seg.begin_addr as u32)
+                }),
+            }
         } else {
-            None
+            let pedersen_builtin_cuda_gen = builtin_segments.pedersen_builtin.map(|seg| {
+                let n = (seg.stop_ptr - seg.begin_addr) / PEDERSEN_BUILTIN_MEMORY_CELLS;
+                pedersen_builtin_cuda::CudaClaimGenerator::new(n.ilog2(), seg.begin_addr as u32)
+            });
+            let pedersen_context_cuda = if has_pedersen {
+                Some(PedersenContextCudaClaimGenerator::new(
+                    preprocessed_trace.clone(),
+                ))
+            } else {
+                None
+            };
+            PedersenVariant::Wide {
+                pedersen_builtin_cuda: pedersen_builtin_cuda_gen,
+                pedersen_context_cuda,
+            }
         };
 
         // --- Poseidon context CUDA wrapper (conditional) ---
@@ -603,10 +641,9 @@ impl NativeCairoCudaClaimGenerator {
             mul_mod_builtin_cuda: mul_mod_builtin_cuda_gen,
             range_check96_builtin_cuda: range_check96_builtin_cuda_gen,
             range_check_builtin_cuda: range_check_builtin_cuda_gen,
-            pedersen_builtin_cuda: pedersen_builtin_cuda_gen,
             poseidon_builtin_cuda: None, // SIMD hybrid: monolithic kernel incompatible with split AIR
             poseidon_segment,
-            pedersen_context_cuda,
+            pedersen_variant,
             poseidon_context_cuda,
             memory: memory.clone(),
             preprocessed_trace: preprocessed_trace.clone(),
@@ -617,7 +654,10 @@ impl NativeCairoCudaClaimGenerator {
         mut self,
         tree_builder: &mut impl TreeBuilder<CudaBackend>,
     ) -> (CairoClaim, NativeCairoCudaInteractionClaimGenerator) {
+        let bt_total = Instant::now();
+
         // ==== 1. Generate opcode traces (CUDA) ====
+        let bt_step = Instant::now();
         let span = span!(Level::INFO, "base_trace: opcodes").entered();
         let (opcodes_claim, opcodes_interaction_gen) = self.opcodes_cuda.write_trace(
             tree_builder,
@@ -630,8 +670,10 @@ impl NativeCairoCudaClaimGenerator {
             &self.vbx_8_cuda,
         );
         span.exit();
+        eprintln!("[BT-PROFILE]   1. opcodes:              {:>6}ms", bt_step.elapsed().as_millis());
 
         // ==== 2. Generate verify_instruction trace (CUDA) ====
+        let bt_step = Instant::now();
         let span = span!(Level::INFO, "base_trace: verify_instruction").entered();
         let (verify_instruction_claim, verify_instruction_interaction_gen) =
             self.verify_instruction_cuda.write_trace(
@@ -642,8 +684,10 @@ impl NativeCairoCudaClaimGenerator {
                 &self.range_checks_trace_generator.rc_7_2_5_trace_generator,
             );
         span.exit();
+        eprintln!("[BT-PROFILE]   2. verify_instruction:   {:>6}ms", bt_step.elapsed().as_millis());
 
         // ==== 3. Generate blake_context traces (CUDA) ====
+        let bt_step = Instant::now();
         let span = span!(Level::INFO, "base_trace: blake_context").entered();
         let (
             blake_round_claim,
@@ -715,8 +759,10 @@ impl NativeCairoCudaClaimGenerator {
             (None, None, None, None, None, None)
         };
         span.exit();
+        eprintln!("[BT-PROFILE]   3. blake_context:        {:>6}ms", bt_step.elapsed().as_millis());
 
         // ==== 4. Generate builtins traces ====
+        let bt_step = Instant::now();
         let span = span!(Level::INFO, "base_trace: builtins").entered();
 
         let (add_mod_builtin_claim, add_mod_builtin_interaction_gen) = self
@@ -757,10 +803,23 @@ impl NativeCairoCudaClaimGenerator {
             })
             .unzip();
 
-        let (pedersen_builtin_claim, pedersen_builtin_interaction_gen) = self
-            .pedersen_builtin_cuda
+        // Extract pedersen variant for step 4 + 5 dispatch
+        let (
+            pedersen_builtin_cuda_opt,
+            pedersen_context_cuda_opt,
+            pedersen_narrow_segment,
+        ) = match self.pedersen_variant {
+            PedersenVariant::Wide {
+                pedersen_builtin_cuda,
+                pedersen_context_cuda,
+            } => (pedersen_builtin_cuda, pedersen_context_cuda, None),
+            PedersenVariant::Narrow { pedersen_segment } => (None, None, pedersen_segment),
+        };
+
+        // Wide: CUDA pedersen_builtin (window_bits_18)
+        let (pedersen_builtin_claim, pedersen_builtin_interaction_gen) = pedersen_builtin_cuda_opt
             .map(|gen| {
-                let pedersen_ctx = self.pedersen_context_cuda.as_ref().unwrap();
+                let pedersen_ctx = pedersen_context_cuda_opt.as_ref().unwrap();
                 gen.write_trace(
                     tree_builder,
                     &mut self.memory_address_to_id_cuda,
@@ -768,6 +827,23 @@ impl NativeCairoCudaClaimGenerator {
                 )
             })
             .unzip();
+
+        // Narrow: SIMD pedersen_builtin_narrow_windows (window_bits_9)
+        let (
+            pedersen_builtin_narrow_claim,
+            pedersen_narrow_builtin_interaction_gen,
+            pedersen_narrow_aggregator_9,
+        ) = if let Some((log_size, segment_start)) = pedersen_narrow_segment {
+            let (claim, interaction_gen, aggregator) =
+                PedersenNarrowBuiltinCudaClaimGenerator::new(log_size, segment_start).write_trace(
+                    tree_builder,
+                    &mut self.memory_address_to_id_cuda,
+                    &self.memory,
+                );
+            (Some(claim), Some(interaction_gen), Some(aggregator))
+        } else {
+            (None, None, None)
+        };
 
         // poseidon_builtin: Encapsulated CUDA wrapper.
         // Uses SIMD internally for trace computation, converts to CUDA inline.
@@ -813,16 +889,20 @@ impl NativeCairoCudaClaimGenerator {
             .unzip();
 
         span.exit();
+        eprintln!("[BT-PROFILE]   4. builtins:             {:>6}ms", bt_step.elapsed().as_millis());
 
         // ==== 5. Generate pedersen_context traces ====
+        let bt_step = Instant::now();
         let span = span!(Level::INFO, "base_trace: pedersen_context").entered();
+
+        // Wide path: CUDA pedersen context (window_bits_18)
         let (
             pedersen_aggregator_claim,
             partial_ec_mul_claim,
             pedersen_points_table_claim,
             pedersen_interaction_mode,
         ) = {
-            match self.pedersen_context_cuda {
+            match pedersen_context_cuda_opt {
                 Some(ctx) => {
                     let (agg_result, pem_cuda, ppt_cuda) = ctx.write_trace_aggregator(
                         tree_builder,
@@ -858,12 +938,36 @@ impl NativeCairoCudaClaimGenerator {
                 None => (None, None, None, None),
             }
         };
+
+        // Narrow path: SIMD pedersen context (window_bits_9) via encapsulated wrapper
+        let (
+            pedersen_aggregator_w9_claim,
+            partial_ec_mul_w9_claim,
+            ppt_w9_claim,
+            pedersen_narrow_context_interaction_gen,
+        ) = if let Some(aggregator_9) = pedersen_narrow_aggregator_9 {
+            let (agg_claim, pem_claim, ppt_claim, interaction_gen) =
+                PedersenNarrowContextCudaClaimGenerator::write_trace(
+                    aggregator_9,
+                    tree_builder,
+                    &mut self.memory_id_to_big_cuda,
+                    &mut self.range_checks_trace_generator,
+                    &self.memory,
+                    &self.preprocessed_trace,
+                );
+            (Some(agg_claim), Some(pem_claim), Some(ppt_claim), Some(interaction_gen))
+        } else {
+            (None, None, None, None)
+        };
+
         span.exit();
+        eprintln!("[BT-PROFILE]   5. pedersen_context:     {:>6}ms", bt_step.elapsed().as_millis());
 
         // ==== 5.5 Poseidon aggregator (encapsulated CUDA wrapper) ====
         // The PoseidonAggregatorCudaClaimGenerator was created and populated by step 4's
         // poseidon_builtin wrapper. Now run the aggregator (SIMD internal), convert to CUDA,
         // and feed downstream CUDA chain generators.
+        let bt_step = Instant::now();
         let span = span!(Level::INFO, "base_trace: poseidon aggregator (CUDA wrapper)").entered();
         let (
             poseidon_aggregator_claim,
@@ -881,12 +985,14 @@ impl NativeCairoCudaClaimGenerator {
             None => (None, None),
         };
         span.exit();
+        eprintln!("[BT-PROFILE]  5.5 poseidon_aggregator:  {:>6}ms", bt_step.elapsed().as_millis());
 
         // ==== 6. Generate poseidon chain traces (CUDA) ====
         // PoseidonContextCudaClaimGenerator runs the CUDA chain generators
         // (full_round_chain, 3_partial_rounds_chain, cube_252, round_keys, rc_252w27).
         // Their inputs were populated either by step 5.5 (SIMD aggregator conversion)
         // or are empty (non-poseidon workloads).
+        let bt_step = Instant::now();
         let span = span!(Level::INFO, "base_trace: poseidon_context (CUDA chains)").entered();
         let (poseidon_context_claim, poseidon_context_interaction_gen) =
             match self.poseidon_context_cuda {
@@ -898,14 +1004,18 @@ impl NativeCairoCudaClaimGenerator {
                 None => (None, None),
             };
         span.exit();
+        eprintln!("[BT-PROFILE]   6. poseidon_context:     {:>6}ms", bt_step.elapsed().as_millis());
 
         // ==== 7. Generate memory_address_to_id (CUDA) ====
+        let bt_step = Instant::now();
         let span = span!(Level::INFO, "base_trace: memory_address_to_id").entered();
         let (memory_address_to_id_claim, memory_address_to_id_interaction_gen) =
             self.memory_address_to_id_cuda.write_trace(tree_builder);
         span.exit();
+        eprintln!("[BT-PROFILE]   7. memory_address_to_id: {:>6}ms", bt_step.elapsed().as_millis());
 
         // ==== 8. Generate memory_id_to_big (CUDA) ====
+        let bt_step = Instant::now();
         let span = span!(Level::INFO, "base_trace: memory_id_to_big").entered();
         const LOG_MAX_BIG_SIZE: u32 = MAX_SEQUENCE_LOG_SIZE;
         let (memory_id_to_value_claim, memory_id_to_value_interaction_gen) =
@@ -915,14 +1025,18 @@ impl NativeCairoCudaClaimGenerator {
                 LOG_MAX_BIG_SIZE,
             );
         span.exit();
+        eprintln!("[BT-PROFILE]   8. memory_id_to_big:     {:>6}ms", bt_step.elapsed().as_millis());
 
         // ==== 9. Generate range_checks (CUDA) ====
+        let bt_step = Instant::now();
         let span = span!(Level::INFO, "base_trace: range_checks").entered();
         let (range_checks_claim, range_checks_interaction_gen) =
             self.range_checks_trace_generator.write_trace(tree_builder);
         span.exit();
+        eprintln!("[BT-PROFILE]   9. range_checks:         {:>6}ms", bt_step.elapsed().as_millis());
 
         // ==== 10. Generate verify_bitwise_xor 4, 7, 8, 9 (all CUDA) ====
+        let bt_step = Instant::now();
         let span = span!(Level::INFO, "base_trace: verify_bitwise_xor").entered();
         let (verify_bitwise_xor_4_claim, verify_bitwise_xor_4_interaction_gen) =
             self.vbx_4_cuda.write_trace_cuda(tree_builder);
@@ -942,6 +1056,8 @@ impl NativeCairoCudaClaimGenerator {
         let (verify_bitwise_xor_9_claim, verify_bitwise_xor_9_interaction_gen) =
             self.vbx_9_cuda.write_trace_cuda(tree_builder);
         span.exit();
+        eprintln!("[BT-PROFILE]  10. verify_bitwise_xor:  {:>6}ms", bt_step.elapsed().as_millis());
+        eprintln!("[BT-PROFILE]  TOTAL write_trace:       {:>6}ms", bt_total.elapsed().as_millis());
 
         // Assemble flat CairoClaim matching v1.1.0 struct field order.
         // Opcodes: unpack from grouped OpcodeClaim → individual Option fields.
@@ -983,18 +1099,18 @@ impl NativeCairoCudaClaimGenerator {
             add_mod_builtin: add_mod_builtin_claim,
             bitwise_builtin: bitwise_builtin_claim,
             mul_mod_builtin: mul_mod_builtin_claim,
-            pedersen_builtin: pedersen_builtin_claim,
-            pedersen_builtin_narrow_windows: None, // v1.1.0 only — SIMD fallback
+            pedersen_builtin: pedersen_builtin_claim, // Wide only
+            pedersen_builtin_narrow_windows: pedersen_builtin_narrow_claim, // Narrow only
             poseidon_builtin: poseidon_builtin_claim,
             range_check96_builtin: range_check_96_builtin_claim,
             range_check_builtin: range_check_128_builtin_claim,
-            // Pedersen context (flat)
+            // Pedersen context (flat) — mutually exclusive: Wide (w18) or Narrow (w9)
             pedersen_aggregator_window_bits_18: pedersen_aggregator_claim,
             partial_ec_mul_window_bits_18: partial_ec_mul_claim,
             pedersen_points_table_window_bits_18: pedersen_points_table_claim,
-            pedersen_aggregator_window_bits_9: None, // v1.1.0 only — no CUDA port
-            partial_ec_mul_window_bits_9: None,
-            pedersen_points_table_window_bits_9: None,
+            pedersen_aggregator_window_bits_9: pedersen_aggregator_w9_claim,
+            partial_ec_mul_window_bits_9: partial_ec_mul_w9_claim,
+            pedersen_points_table_window_bits_9: ppt_w9_claim,
             // Poseidon context (flat) — chain claims from CUDA poseidon_context
             poseidon_aggregator: poseidon_aggregator_claim,
             poseidon_3_partial_rounds_chain: poseidon_context_claim
@@ -1041,14 +1157,16 @@ impl NativeCairoCudaClaimGenerator {
                 add_mod: add_mod_builtin_interaction_gen,
                 bitwise: bitwise_builtin_interaction_gen,
                 mul_mod: mul_mod_builtin_interaction_gen,
-                pedersen: pedersen_builtin_interaction_gen,
+                pedersen: pedersen_builtin_interaction_gen, // Wide only (None for Narrow)
                 poseidon: None, // Encapsulated CUDA wrapper — handled via poseidon_builtin_cuda_interaction_gen
                 range_check_96: range_check_96_builtin_interaction_gen,
                 range_check_128: range_check_128_builtin_interaction_gen,
             },
             poseidon_builtin_cuda_interaction_gen,
             poseidon_aggregator_cuda_interaction_gen,
-            pedersen_context_interaction_gen: pedersen_interaction_mode,
+            pedersen_context_interaction_gen: pedersen_interaction_mode, // Wide only
+            pedersen_narrow_builtin_interaction_gen, // Narrow only
+            pedersen_narrow_context_interaction_gen, // Narrow only
             poseidon_context_interaction_gen,
             memory_address_to_id_interaction_gen,
             memory_id_to_value_interaction_gen,
@@ -1106,7 +1224,12 @@ pub struct NativeCairoCudaInteractionClaimGenerator {
     // Encapsulated CUDA poseidon_aggregator interaction generator
     poseidon_aggregator_cuda_interaction_gen:
         Option<PoseidonAggregatorCudaInteractionClaimGenerator>,
-    pedersen_context_interaction_gen: Option<PedersenInteractionMode>,
+    pedersen_context_interaction_gen: Option<PedersenInteractionMode>, // Wide only
+    // Narrow pedersen interaction generators (CanonicalSmall)
+    pedersen_narrow_builtin_interaction_gen:
+        Option<PedersenNarrowBuiltinCudaInteractionClaimGenerator>,
+    pedersen_narrow_context_interaction_gen:
+        Option<PedersenNarrowContextCudaInteractionClaimGenerator>,
     // CUDA poseidon chain interaction generator (full_round, 3_partial, cube_252, round_keys, rc_252w27)
     poseidon_context_interaction_gen: Option<PoseidonContextCudaInteractionClaimGenerator>,
     memory_address_to_id_interaction_gen: memory_address_to_id_cuda::CudaInteractionClaimGenerator,
@@ -1124,21 +1247,28 @@ impl NativeCairoCudaInteractionClaimGenerator {
         tree_builder: &mut impl TreeBuilder<CudaBackend>,
         common_lookup_elements: &CommonLookupElements,
     ) -> CairoInteractionClaim {
+        let it_total = Instant::now();
+
         // ==== 1. Opcodes interaction traces (CUDA) ====
+        let it_step = Instant::now();
         let span = span!(Level::INFO, "interaction_trace: opcodes").entered();
         let opcodes_interaction_claim = self
             .opcodes_interaction_gen
             .write_interaction_trace(tree_builder, common_lookup_elements);
         span.exit();
+        eprintln!("[IT-PROFILE]   1. opcodes:              {:>6}ms", it_step.elapsed().as_millis());
 
         // ==== 2. verify_instruction interaction trace (CUDA) ====
+        let it_step = Instant::now();
         let span = span!(Level::INFO, "interaction_trace: verify_instruction").entered();
         let verify_instruction_interaction_claim = self
             .verify_instruction_interaction_gen
             .write_interaction_trace(tree_builder, common_lookup_elements);
         span.exit();
+        eprintln!("[IT-PROFILE]   2. verify_instruction:   {:>6}ms", it_step.elapsed().as_millis());
 
         // ==== 3. blake_context interaction trace (CUDA) ====
+        let it_step = Instant::now();
         let span = span!(Level::INFO, "interaction_trace: blake_context").entered();
         let (
             blake_round_interaction,
@@ -1173,8 +1303,10 @@ impl NativeCairoCudaInteractionClaimGenerator {
             (None, None, None, None, None)
         };
         span.exit();
+        eprintln!("[IT-PROFILE]   3. blake_context:        {:>6}ms", it_step.elapsed().as_millis());
 
         // ==== 4. builtins interaction trace ====
+        let it_step = Instant::now();
         let span = span!(Level::INFO, "interaction_trace: builtins").entered();
         let add_mod_bi = self
             .builtins_interaction_gen
@@ -1188,9 +1320,14 @@ impl NativeCairoCudaInteractionClaimGenerator {
             .builtins_interaction_gen
             .mul_mod
             .map(|gen| gen.write_interaction_trace(tree_builder, common_lookup_elements));
+        // Wide: CUDA pedersen_builtin interaction trace
         let pedersen_bi = self
             .builtins_interaction_gen
             .pedersen
+            .map(|gen| gen.write_interaction_trace(tree_builder, common_lookup_elements));
+        // Narrow: SIMD pedersen_builtin_narrow_windows interaction trace
+        let pedersen_narrow_bi = self
+            .pedersen_narrow_builtin_interaction_gen
             .map(|gen| gen.write_interaction_trace(tree_builder, common_lookup_elements));
         // poseidon_builtin: Encapsulated CUDA wrapper
         let poseidon_bi = self
@@ -1205,9 +1342,12 @@ impl NativeCairoCudaInteractionClaimGenerator {
             .range_check_128
             .map(|gen| gen.write_interaction_trace(tree_builder, common_lookup_elements));
         span.exit();
+        eprintln!("[IT-PROFILE]   4. builtins:             {:>6}ms", it_step.elapsed().as_millis());
 
         // ==== 5. pedersen_context interaction trace ====
+        let it_step = Instant::now();
         let span = span!(Level::INFO, "interaction_trace: pedersen_context").entered();
+        // Wide path: CUDA pedersen context (window_bits_18)
         let pedersen_context_interaction = match self.pedersen_context_interaction_gen {
             Some(gen) if !gen.is_empty() => {
                 let result = gen.write_interaction_trace(tree_builder, common_lookup_elements);
@@ -1215,17 +1355,25 @@ impl NativeCairoCudaInteractionClaimGenerator {
             }
             _ => None,
         };
+        // Narrow path: SIMD pedersen context (window_bits_9)
+        let pedersen_narrow_context_interaction = self
+            .pedersen_narrow_context_interaction_gen
+            .map(|gen| gen.write_interaction_trace(tree_builder, common_lookup_elements));
         span.exit();
+        eprintln!("[IT-PROFILE]   5. pedersen_context:     {:>6}ms", it_step.elapsed().as_millis());
 
         // ==== 5.5. poseidon_aggregator interaction trace (encapsulated CUDA wrapper) ====
+        let it_step = Instant::now();
         let span =
             span!(Level::INFO, "interaction_trace: poseidon_aggregator (CUDA wrapper)").entered();
         let poseidon_aggregator_interaction =
             self.poseidon_aggregator_cuda_interaction_gen
                 .map(|gen| gen.write_interaction_trace(tree_builder, common_lookup_elements));
         span.exit();
+        eprintln!("[IT-PROFILE]  5.5 poseidon_aggregator:  {:>6}ms", it_step.elapsed().as_millis());
 
         // ==== 6. poseidon_context interaction trace (CUDA chains) ====
+        let it_step = Instant::now();
         let span = span!(Level::INFO, "interaction_trace: poseidon_context").entered();
         let poseidon_context_interaction = match self.poseidon_context_interaction_gen {
             Some(gen) => {
@@ -1236,29 +1384,37 @@ impl NativeCairoCudaInteractionClaimGenerator {
             None => None,
         };
         span.exit();
+        eprintln!("[IT-PROFILE]   6. poseidon_context:     {:>6}ms", it_step.elapsed().as_millis());
 
         // ==== 7. memory_address_to_id interaction trace (CUDA) ====
+        let it_step = Instant::now();
         let span = span!(Level::INFO, "interaction_trace: memory_address_to_id").entered();
         let memory_address_to_id_interaction_claim = self
             .memory_address_to_id_interaction_gen
             .write_interaction_trace(tree_builder, common_lookup_elements);
         span.exit();
+        eprintln!("[IT-PROFILE]   7. memory_address_to_id: {:>6}ms", it_step.elapsed().as_millis());
 
         // ==== 8. memory_id_to_big interaction trace (CUDA) ====
+        let it_step = Instant::now();
         let span = span!(Level::INFO, "interaction_trace: memory_id_to_big").entered();
         let memory_id_to_value_interaction_claim = self
             .memory_id_to_value_interaction_gen
             .write_interaction_trace(tree_builder, common_lookup_elements);
         span.exit();
+        eprintln!("[IT-PROFILE]   8. memory_id_to_big:     {:>6}ms", it_step.elapsed().as_millis());
 
         // ==== 9. range_checks interaction trace (CUDA) ====
+        let it_step = Instant::now();
         let span = span!(Level::INFO, "interaction_trace: range_checks").entered();
         let range_checks_interaction_claim = self
             .range_checks_interaction_gen
             .write_interaction_trace(tree_builder, common_lookup_elements);
         span.exit();
+        eprintln!("[IT-PROFILE]   9. range_checks:         {:>6}ms", it_step.elapsed().as_millis());
 
         // ==== 10. verify_bitwise_xor interaction traces (all CUDA) ====
+        let it_step = Instant::now();
         let span = span!(Level::INFO, "interaction_trace: verify_bitwise_xor").entered();
         let verify_bitwise_xor_4_interaction_claim = self
             .verify_bitwise_xor_4_interaction_gen
@@ -1273,6 +1429,8 @@ impl NativeCairoCudaInteractionClaimGenerator {
             .verify_bitwise_xor_9_interaction_gen
             .write_interaction_trace(tree_builder, common_lookup_elements);
         span.exit();
+        eprintln!("[IT-PROFILE]  10. verify_bitwise_xor:  {:>6}ms", it_step.elapsed().as_millis());
+        eprintln!("[IT-PROFILE]  TOTAL interaction_trace: {:>6}ms", it_total.elapsed().as_millis());
 
         // Assemble flat CairoInteractionClaim matching v1.1.0 struct field order.
         CairoInteractionClaim {
@@ -1315,12 +1473,12 @@ impl NativeCairoCudaInteractionClaimGenerator {
             add_mod_builtin: add_mod_bi,
             bitwise_builtin: bitwise_bi,
             mul_mod_builtin: mul_mod_bi,
-            pedersen_builtin: pedersen_bi,
-            pedersen_builtin_narrow_windows: None,
+            pedersen_builtin: pedersen_bi, // Wide only
+            pedersen_builtin_narrow_windows: pedersen_narrow_bi, // Narrow only
             poseidon_builtin: poseidon_bi,
             range_check96_builtin: range_check_96_bi,
             range_check_builtin: range_check_128_bi,
-            // Pedersen context (flat)
+            // Pedersen context (flat) — mutually exclusive: Wide (w18) or Narrow (w9)
             pedersen_aggregator_window_bits_18: pedersen_context_interaction
                 .as_ref()
                 .map(|c| c.pedersen_aggregator.clone()),
@@ -1329,9 +1487,14 @@ impl NativeCairoCudaInteractionClaimGenerator {
                 .map(|c| c.partial_ec_mul.clone()),
             pedersen_points_table_window_bits_18: pedersen_context_interaction
                 .map(|c| c.pedersen_points_table),
-            pedersen_aggregator_window_bits_9: None,
-            partial_ec_mul_window_bits_9: None,
-            pedersen_points_table_window_bits_9: None,
+            pedersen_aggregator_window_bits_9: pedersen_narrow_context_interaction
+                .as_ref()
+                .map(|c| c.pedersen_aggregator.clone()),
+            partial_ec_mul_window_bits_9: pedersen_narrow_context_interaction
+                .as_ref()
+                .map(|c| c.partial_ec_mul.clone()),
+            pedersen_points_table_window_bits_9: pedersen_narrow_context_interaction
+                .map(|c| c.pedersen_points_table),
             // Poseidon context (flat)
             poseidon_aggregator: poseidon_aggregator_interaction, // SIMD hybrid pipeline
             poseidon_3_partial_rounds_chain: poseidon_context_interaction
@@ -1503,5 +1666,357 @@ impl PoseidonBuiltinCudaInteractionClaimGenerator {
         );
 
         interaction_claim
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Encapsulated CUDA wrapper for pedersen_builtin_narrow_windows (CanonicalSmall)
+// ---------------------------------------------------------------------------
+
+use cairo_air::components::pedersen_builtin_narrow_windows::{
+    Claim as PedersenNarrowBuiltinClaim,
+    InteractionClaim as PedersenNarrowBuiltinInteractionClaim,
+};
+
+/// Encapsulated CUDA wrapper for pedersen_builtin_narrow_windows.
+///
+/// Internally uses SIMD to compute the trace, converts to CUDA inline.
+/// Returns the populated SIMD aggregator_9 for downstream context processing.
+struct PedersenNarrowBuiltinCudaClaimGenerator {
+    log_size: u32,
+    segment_start: u32,
+}
+
+impl PedersenNarrowBuiltinCudaClaimGenerator {
+    fn new(log_size: u32, segment_start: u32) -> Self {
+        Self {
+            log_size,
+            segment_start,
+        }
+    }
+
+    /// Write the pedersen_builtin_narrow_windows base trace and feed memory_address_to_id.
+    ///
+    /// Returns: (Claim, InteractionGen, populated SIMD aggregator_9)
+    fn write_trace(
+        self,
+        tree_builder: &mut impl TreeBuilder<CudaBackend>,
+        memory_address_to_id_cuda: &mut memory_address_to_id_cuda::CudaClaimGenerator,
+        memory: &Arc<Memory>,
+    ) -> (
+        PedersenNarrowBuiltinClaim,
+        PedersenNarrowBuiltinCudaInteractionClaimGenerator,
+        pedersen_aggregator_window_bits_9::ClaimGenerator,
+    ) {
+        let log_size = self.log_size;
+        let segment_start = self.segment_start;
+
+        // Create SIMD memory_address_to_id (for deduce_output)
+        let simd_mem_addr_to_id = memory_address_to_id::ClaimGenerator::new(memory.clone());
+
+        // Create SIMD generators
+        let simd_builtin = pedersen_builtin_narrow_windows::ClaimGenerator::new(
+            log_size,
+            segment_start,
+        );
+        let simd_aggregator_9 = pedersen_aggregator_window_bits_9::ClaimGenerator::new();
+
+        // Run SIMD write_trace
+        let (trace, claim, interaction_gen) =
+            simd_builtin.write_trace(&simd_mem_addr_to_id, &simd_aggregator_9);
+
+        // Convert SIMD trace to CUDA inline
+        tree_builder.extend_evals(
+            trace
+                .to_evals()
+                .into_iter()
+                .map(convert_simd_to_cuda_evaluation)
+                .collect(),
+        );
+
+        // Feed CUDA memory_address_to_id with pedersen's 3 addresses per row
+        {
+            let n_rows = 1usize << log_size;
+            for row in 0..n_rows {
+                for offset in 0..3u32 {
+                    let addr =
+                        M31::from_u32_unchecked(segment_start + (row as u32) * 3 + offset);
+                    memory_address_to_id_cuda.add_cuda_input(&addr);
+                }
+            }
+        }
+
+        (
+            claim,
+            PedersenNarrowBuiltinCudaInteractionClaimGenerator {
+                simd_interaction_gen: interaction_gen,
+            },
+            simd_aggregator_9,
+        )
+    }
+}
+
+/// Encapsulated interaction claim generator for pedersen_builtin_narrow_windows.
+struct PedersenNarrowBuiltinCudaInteractionClaimGenerator {
+    simd_interaction_gen: pedersen_builtin_narrow_windows::InteractionClaimGenerator,
+}
+
+impl PedersenNarrowBuiltinCudaInteractionClaimGenerator {
+    fn write_interaction_trace(
+        self,
+        tree_builder: &mut impl TreeBuilder<CudaBackend>,
+        common_lookup_elements: &CommonLookupElements,
+    ) -> PedersenNarrowBuiltinInteractionClaim {
+        let (evals, interaction_claim) = self
+            .simd_interaction_gen
+            .write_interaction_trace(common_lookup_elements);
+
+        tree_builder.extend_evals(
+            evals
+                .into_iter()
+                .map(convert_simd_to_cuda_evaluation)
+                .collect(),
+        );
+
+        interaction_claim
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Encapsulated CUDA wrapper for pedersen narrow context (aggregator_9 + PEM_9 + PPT_9)
+// ---------------------------------------------------------------------------
+
+use cairo_air::components::pedersen_aggregator_window_bits_9::{
+    Claim as PedersenAggregator9Claim,
+    InteractionClaim as PedersenAggregator9InteractionClaim,
+};
+use cairo_air::components::partial_ec_mul_window_bits_9::{
+    Claim as PartialEcMul9Claim,
+    InteractionClaim as PartialEcMul9InteractionClaim,
+};
+use cairo_air::components::pedersen_points_table_window_bits_9::{
+    Claim as PedersenPointsTable9Claim,
+    InteractionClaim as PedersenPointsTable9InteractionClaim,
+};
+
+/// Result of narrow pedersen context interaction trace.
+#[derive(Clone)]
+struct PedersenNarrowContextInteractionClaim {
+    pedersen_aggregator: PedersenAggregator9InteractionClaim,
+    partial_ec_mul: PartialEcMul9InteractionClaim,
+    pedersen_points_table: PedersenPointsTable9InteractionClaim,
+}
+
+/// Encapsulated CUDA wrapper for the narrow pedersen context chain.
+///
+/// Runs the SIMD chain: aggregator_9 → partial_ec_mul_9 → pedersen_points_table_9,
+/// converts each trace to CUDA, and merges multiplicities into CUDA generators.
+struct PedersenNarrowContextCudaClaimGenerator;
+
+impl PedersenNarrowContextCudaClaimGenerator {
+    /// Run the full narrow pedersen context chain (SIMD) and convert traces to CUDA.
+    fn write_trace(
+        simd_aggregator_9: pedersen_aggregator_window_bits_9::ClaimGenerator,
+        tree_builder: &mut impl TreeBuilder<CudaBackend>,
+        memory_id_to_big_cuda: &mut memory_id_to_big_cuda::CudaClaimGenerator,
+        range_checks_trace_generator: &mut RangeChecksCudaClaimGenerator,
+        memory: &Arc<Memory>,
+        preprocessed_trace: &Arc<PreProcessedTrace>,
+    ) -> (
+        PedersenAggregator9Claim,
+        PartialEcMul9Claim,
+        PedersenPointsTable9Claim,
+        PedersenNarrowContextCudaInteractionClaimGenerator,
+    ) {
+        if simd_aggregator_9.is_empty() {
+            // Empty pedersen — return empty claims
+            // This shouldn't happen (has_pedersen was true), but handle gracefully.
+            panic!("PedersenNarrowContextCudaClaimGenerator: empty aggregator_9");
+        }
+
+        // Create temporary SIMD generators for sub-components
+        let simd_mem_id_to_big = memory_id_to_big::ClaimGenerator::new(memory.clone());
+        let simd_rc_8 = range_check_8::ClaimGenerator::new(preprocessed_trace.clone());
+        let mut simd_pem_9 = partial_ec_mul_window_bits_9::ClaimGenerator::new();
+
+        // 1. Run SIMD aggregator_9 write_trace
+        let (agg_trace, agg_claim, agg_interaction_gen) = simd_aggregator_9.write_trace(
+            &simd_mem_id_to_big,
+            &simd_rc_8,
+            &mut simd_pem_9,
+        );
+
+        // Convert aggregator trace to CUDA
+        tree_builder.extend_evals(
+            agg_trace
+                .to_evals()
+                .into_iter()
+                .map(convert_simd_to_cuda_evaluation)
+                .collect(),
+        );
+
+        // Merge memory_id_to_big multiplicities into CUDA
+        {
+            let big_mults: Vec<u32> = simd_mem_id_to_big
+                .big_mults
+                .into_simd_vec()
+                .into_iter()
+                .flat_map(|p| p.to_array().map(|v| v.0))
+                .collect();
+            let small_mults: Vec<u32> = simd_mem_id_to_big
+                .small_mults
+                .into_simd_vec()
+                .into_iter()
+                .flat_map(|p| p.to_array().map(|v| v.0))
+                .collect();
+            memory_id_to_big_cuda.merge_simd_multiplicities(&big_mults, &small_mults);
+        }
+
+        // Merge range_check_8 multiplicities into CUDA
+        {
+            let mults_arr = simd_rc_8.mults;
+            for rc_mult in mults_arr {
+                let mults: Vec<u32> = rc_mult
+                    .into_simd_vec()
+                    .into_iter()
+                    .flat_map(|p| p.to_array().map(|v| v.0))
+                    .collect();
+                range_checks_trace_generator
+                    .rc_8_trace_generator
+                    .merge_simd_multiplicities(&mults);
+            }
+        }
+
+        // 2. Create SIMD generators for PEM_9 sub-components
+        let simd_ppt_9 =
+            pedersen_points_table_window_bits_9::ClaimGenerator::new(preprocessed_trace.clone());
+        let simd_rc_9_9 = range_check_9_9::ClaimGenerator::new(preprocessed_trace.clone());
+        let simd_rc_20 = range_check_20::ClaimGenerator::new(preprocessed_trace.clone());
+
+        // Run SIMD partial_ec_mul_9 write_trace
+        let (pem_trace, pem_claim, pem_interaction_gen) =
+            simd_pem_9.write_trace(&simd_ppt_9, &simd_rc_9_9, &simd_rc_20);
+
+        // Convert PEM trace to CUDA
+        tree_builder.extend_evals(
+            pem_trace
+                .to_evals()
+                .into_iter()
+                .map(convert_simd_to_cuda_evaluation)
+                .collect(),
+        );
+
+        // Merge range_check_9_9 multiplicities into CUDA (8 relations → &[Vec<u32>])
+        {
+            let all_mults: Vec<Vec<u32>> = simd_rc_9_9
+                .mults
+                .into_iter()
+                .map(|rc_mult| {
+                    rc_mult
+                        .into_simd_vec()
+                        .into_iter()
+                        .flat_map(|p| p.to_array().map(|v| v.0))
+                        .collect()
+                })
+                .collect();
+            range_checks_trace_generator
+                .rc_9_9_trace_generator
+                .merge_simd_multiplicities(&all_mults);
+        }
+
+        // Merge range_check_20 multiplicities into CUDA (8 relations → &[Vec<u32>])
+        {
+            let all_mults: Vec<Vec<u32>> = simd_rc_20
+                .mults
+                .into_iter()
+                .map(|rc_mult| {
+                    rc_mult
+                        .into_simd_vec()
+                        .into_iter()
+                        .flat_map(|p| p.to_array().map(|v| v.0))
+                        .collect()
+                })
+                .collect();
+            range_checks_trace_generator
+                .rc_20_trace_generator
+                .merge_simd_multiplicities(&all_mults);
+        }
+
+        // 3. Run SIMD pedersen_points_table_9 write_trace
+        let (ppt_trace, ppt_claim, ppt_interaction_gen) = simd_ppt_9.write_trace();
+
+        // Convert PPT trace to CUDA
+        tree_builder.extend_evals(
+            ppt_trace
+                .to_evals()
+                .into_iter()
+                .map(convert_simd_to_cuda_evaluation)
+                .collect(),
+        );
+
+        (
+            agg_claim,
+            pem_claim,
+            ppt_claim,
+            PedersenNarrowContextCudaInteractionClaimGenerator {
+                agg_interaction_gen,
+                pem_interaction_gen,
+                ppt_interaction_gen,
+            },
+        )
+    }
+}
+
+/// Encapsulated interaction claim generator for the narrow pedersen context chain.
+struct PedersenNarrowContextCudaInteractionClaimGenerator {
+    agg_interaction_gen: pedersen_aggregator_window_bits_9::InteractionClaimGenerator,
+    pem_interaction_gen: partial_ec_mul_window_bits_9::InteractionClaimGenerator,
+    ppt_interaction_gen: pedersen_points_table_window_bits_9::InteractionClaimGenerator,
+}
+
+impl PedersenNarrowContextCudaInteractionClaimGenerator {
+    fn write_interaction_trace(
+        self,
+        tree_builder: &mut impl TreeBuilder<CudaBackend>,
+        common_lookup_elements: &CommonLookupElements,
+    ) -> PedersenNarrowContextInteractionClaim {
+        // aggregator_9
+        let (agg_evals, agg_interaction) = self
+            .agg_interaction_gen
+            .write_interaction_trace(common_lookup_elements);
+        tree_builder.extend_evals(
+            agg_evals
+                .into_iter()
+                .map(convert_simd_to_cuda_evaluation)
+                .collect(),
+        );
+
+        // partial_ec_mul_9
+        let (pem_evals, pem_interaction) = self
+            .pem_interaction_gen
+            .write_interaction_trace(common_lookup_elements);
+        tree_builder.extend_evals(
+            pem_evals
+                .into_iter()
+                .map(convert_simd_to_cuda_evaluation)
+                .collect(),
+        );
+
+        // pedersen_points_table_9
+        let (ppt_evals, ppt_interaction) = self
+            .ppt_interaction_gen
+            .write_interaction_trace(common_lookup_elements);
+        tree_builder.extend_evals(
+            ppt_evals
+                .into_iter()
+                .map(convert_simd_to_cuda_evaluation)
+                .collect(),
+        );
+
+        PedersenNarrowContextInteractionClaim {
+            pedersen_aggregator: agg_interaction,
+            partial_ec_mul: pem_interaction,
+            pedersen_points_table: ppt_interaction,
+        }
     }
 }

@@ -100,7 +100,19 @@ fn parse_bitwise_xor_id(id: &str) -> Option<(u32, usize)> {
 /// Parse a pedersen_points column ID into the column index.
 /// Format: "pedersen_points_{idx}"
 fn parse_pedersen_points_id(id: &str) -> Option<usize> {
+    // Must check "pedersen_points_small_" first to avoid matching "pedersen_points_" prefix
+    if id.starts_with("pedersen_points_small_") {
+        return None;
+    }
     id.strip_prefix("pedersen_points_")?.parse::<usize>().ok()
+}
+
+/// Parse a pedersen_points_small column ID (window_bits_9) into the column index.
+/// Format: "pedersen_points_small_{idx}"
+fn parse_pedersen_points_small_id(id: &str) -> Option<usize> {
+    id.strip_prefix("pedersen_points_small_")?
+        .parse::<usize>()
+        .ok()
 }
 
 /// Parse a poseidon_round_keys column ID into the column index.
@@ -138,12 +150,16 @@ fn gen_preprocessed_trace_on_gpu(
     let mut pedersen_cache: Option<
         Vec<CircleEvaluation<CudaBackend, BaseField, BitReversedOrder>>,
     > = None;
+    let mut pedersen_small_cache: Option<
+        Vec<CircleEvaluation<CudaBackend, BaseField, BitReversedOrder>>,
+    > = None;
 
     let mut results = Vec::with_capacity(log_sizes.len());
     let mut seq_count = 0u32;
     let mut range_check_count = 0u32;
     let mut bitwise_xor_count = 0u32;
     let mut pedersen_count = 0u32;
+    let mut pedersen_small_count = 0u32;
     let mut poseidon_count = 0u32;
     let mut blake_count = 0u32;
 
@@ -165,6 +181,12 @@ fn gen_preprocessed_trace_on_gpu(
             let cached = bitwise_xor_cache
                 .entry(n_bits)
                 .or_insert_with(|| gen_bitwise_xor_columns_cuda(n_bits, domain));
+            cached[col_idx].clone()
+        } else if let Some(col_idx) = parse_pedersen_points_small_id(&id.id) {
+            pedersen_small_count += 1;
+            let cached = pedersen_small_cache.get_or_insert_with(|| {
+                gen_pedersen_small_columns_simd_fallback(*log_size)
+            });
             cached[col_idx].clone()
         } else if let Some(col_idx) = parse_pedersen_points_id(&id.id) {
             pedersen_count += 1;
@@ -194,12 +216,13 @@ fn gen_preprocessed_trace_on_gpu(
 
     info!(
         "Preprocessed trace GPU generation complete ({} total: {} seq, {} range_check, \
-         {} bitwise_xor, {} pedersen, {} poseidon, {} blake)",
+         {} bitwise_xor, {} pedersen, {} pedersen_small, {} poseidon, {} blake)",
         results.len(),
         seq_count,
         range_check_count,
         bitwise_xor_count,
         pedersen_count,
+        pedersen_small_count,
         poseidon_count,
         blake_count,
     );
@@ -404,6 +427,22 @@ fn gen_pedersen_columns_simd_fallback(
     (0..56)
         .map(|col_idx| {
             let col = PedersenPoints::<18>::new(col_idx);
+            convert_simd_to_cuda_evaluation(col.gen_column_simd())
+        })
+        .collect()
+}
+
+/// Generate small pedersen preprocessed columns (window_bits_9) using SIMD + conversion.
+fn gen_pedersen_small_columns_simd_fallback(
+    log_size: u32,
+) -> Vec<CircleEvaluation<CudaBackend, BaseField, BitReversedOrder>> {
+    info!(
+        "Generating pedersen_small columns via SIMD fallback (56 columns, log_size={})",
+        log_size
+    );
+    (0..56)
+        .map(|col_idx| {
+            let col = PedersenPoints::<9>::new(col_idx);
             convert_simd_to_cuda_evaluation(col.gen_column_simd())
         })
         .collect()
