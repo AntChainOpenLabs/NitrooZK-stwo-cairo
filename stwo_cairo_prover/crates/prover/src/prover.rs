@@ -417,9 +417,12 @@ where
     pcs_config.mix_into(channel);
     let mut commitment_scheme =
         CommitmentSchemeProver::<CudaBackend, MC>::new(pcs_config, &twiddles);
-    if store_polynomials_coefficients {
-        commitment_scheme.set_store_polynomials_coefficients();
-    }
+    // Always store polynomial coefficients for the native CUDA path.
+    // This enables fast batched GPU OODS evaluation via batch_eval_at_point()
+    // (~15 kernel launches) instead of slow per-polynomial CPU barycentric weights
+    // (~400 individual evaluations). +50% GPU memory for coefficients is acceptable
+    // since this path already assumes all data fits in GPU memory.
+    commitment_scheme.set_store_polynomials_coefficients();
     eprintln!("[PROFILE] twiddles + scheme:          {:>6}ms", t.elapsed().as_millis());
 
     // Preprocessed trace — generate on GPU.
