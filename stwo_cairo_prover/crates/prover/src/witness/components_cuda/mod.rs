@@ -44,9 +44,13 @@ pub mod cuda_lookup_helper;
 // Other components
 pub mod cube_252_cuda;
 pub mod partial_ec_mul_cuda;
+pub mod partial_ec_mul_wb9_cuda;
 pub mod pedersen_aggregator_cuda;
+pub mod pedersen_aggregator_wb9_cuda;
 pub mod pedersen_cuda;
 pub mod pedersen_points_table_cuda;
+pub mod pedersen_points_table_wb9_cuda;
+pub mod pedersen_wb9_cuda;
 pub mod poseidon_3_partial_rounds_chain_cuda;
 pub mod poseidon_aggregator_cuda;
 pub mod poseidon_cuda;
