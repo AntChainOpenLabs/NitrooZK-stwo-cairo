@@ -1486,5 +1486,508 @@ pub mod tests {
                 verify_cairo_cuda::<Blake2sMerkleChannel>(cairo_proof).unwrap();
             }
         }
+
+        // ==================== SIMD Memory Profile Test ====================
+
+        /// Inline SIMD prove flow with memory profiling at every phase boundary.
+        /// Measures host RSS to estimate GPU memory requirements.
+        #[test]
+        #[ignore = "sn_pie SIMD memory profiling; run manually with --ignored"]
+        fn test_prove_verify_sn_pie_simd_mem_profile() {
+            use std::sync::Arc;
+
+            use cairo_air::air::CairoComponents;
+            use cairo_air::claims::lookup_sum;
+            use cairo_air::relations::CommonLookupElements;
+            use cairo_air::verifier::{verify_cairo_ex, INTERACTION_POW_BITS};
+            use cairo_air::PreProcessedTraceVariant;
+            use num_traits::Zero;
+            use stwo::core::channel::{Channel, MerkleChannel};
+            use stwo::core::fields::qm31::SecureField;
+            use stwo::core::pcs::PcsConfig;
+            use stwo::core::poly::circle::CanonicCoset;
+            use stwo::core::proof_of_work::GrindOps;
+            use stwo::core::vcs::blake2_merkle::Blake2sMerkleChannel;
+            use stwo::prover::backend::simd::SimdBackend;
+            use stwo::prover::backend::BackendForChannel;
+            use stwo::prover::poly::circle::PolyOps;
+            use stwo::prover::{prove_ex, CommitmentSchemeProver};
+
+            use crate::mem_profile::MemProfiler;
+            use crate::prover::{ChannelHash, ProverParameters, LOG_MAX_ROWS};
+            use crate::utils::cairo_provers;
+            use crate::witness::cairo::create_cairo_claim_generator;
+            use crate::witness::preprocessed_trace::gen_trace;
+            use crate::witness::utils::witness_trace_cells;
+
+            type MC = Blake2sMerkleChannel;
+
+            let mut mp = MemProfiler::new();
+            mp.snap("START (before input load)");
+
+            // Load sn_pie input.
+            let input = load_sn_pie_input();
+            mp.snap("After load_sn_pie_input()");
+
+            let prover_params = ProverParameters {
+                channel_hash: ChannelHash::Blake2s,
+                pcs_config: PcsConfig::default(),
+                preprocessed_trace: PreProcessedTraceVariant::Canonical,
+                channel_salt: 0,
+                store_polynomials_coefficients: false,
+                include_all_preprocessed_columns: false,
+            };
+            let ProverParameters {
+                channel_hash: _,
+                channel_salt,
+                pcs_config,
+                preprocessed_trace,
+                store_polynomials_coefficients: _,
+                include_all_preprocessed_columns,
+            } = prover_params;
+
+            // Twiddles.
+            let max_domain_size = {
+                let cairo_air_log_degree_bound = 1;
+                if let Some(lifting_log_size) = pcs_config.lifting_log_size {
+                    lifting_log_size
+                } else {
+                    LOG_MAX_ROWS
+                        + std::cmp::max(
+                            cairo_air_log_degree_bound,
+                            pcs_config.fri_config.log_blowup_factor,
+                        )
+                }
+            };
+            let twiddles = SimdBackend::precompute_twiddles(
+                CanonicCoset::new(max_domain_size)
+                    .circle_domain()
+                    .half_coset,
+            );
+            mp.snap("After precompute_twiddles()");
+
+            // Setup commitment scheme.
+            let channel = &mut <MC as MerkleChannel>::C::default();
+            channel.mix_felts(&[channel_salt.into()]);
+            pcs_config.mix_into(channel);
+            let mut commitment_scheme =
+                CommitmentSchemeProver::<SimdBackend, MC>::new(pcs_config, &twiddles);
+            // Don't store coefficients for SIMD profiling (saves memory).
+            let _ = &mut commitment_scheme;
+            mp.snap("After CommitmentSchemeProver::new()");
+
+            // Preprocessed trace.
+            let preprocessed_trace = Arc::new(preprocessed_trace.to_preprocessed_trace());
+            mp.snap("After to_preprocessed_trace()");
+
+            let mut tree_builder = commitment_scheme.tree_builder();
+            tree_builder.extend_evals(gen_trace(preprocessed_trace.clone()));
+            mp.snap("After preprocessed extend_evals()");
+
+            tree_builder.commit(channel);
+            mp.snap("After preprocessed commit()");
+
+            // Create claim generator (runs Cairo VM adapter).
+            let cairo_claim_generator =
+                create_cairo_claim_generator(input, preprocessed_trace.clone());
+            mp.snap("After create_cairo_claim_generator()");
+
+            // Base trace.
+            let mut tree_builder = commitment_scheme.tree_builder();
+            let (claim, interaction_generator) =
+                cairo_claim_generator.write_trace(&mut tree_builder);
+            mp.snap("After base trace write_trace()");
+
+            eprintln!(
+                "Witness trace cells: {:?}",
+                witness_trace_cells(&claim, &preprocessed_trace)
+            );
+
+            claim.mix_into(channel);
+            tree_builder.commit(channel);
+            mp.snap("After base trace commit()");
+
+            // PoW grinding.
+            let interaction_pow = SimdBackend::grind(channel, INTERACTION_POW_BITS);
+            channel.mix_u64(interaction_pow);
+            let interaction_elements = CommonLookupElements::draw(channel);
+            mp.snap("After PoW grind + draw elements");
+
+            // Interaction trace.
+            let mut tree_builder = commitment_scheme.tree_builder();
+            let interaction_claim = interaction_generator
+                .write_interaction_trace(&mut tree_builder, &interaction_elements);
+            mp.snap("After interaction write_interaction_trace()");
+
+            debug_assert_eq!(
+                lookup_sum(&claim, &interaction_elements, &interaction_claim),
+                SecureField::zero()
+            );
+
+            interaction_claim.mix_into(channel);
+            tree_builder.commit(channel);
+            mp.snap("After interaction trace commit()");
+
+            // Component provers.
+            let component_builder = CairoComponents::new(
+                &claim,
+                &interaction_elements,
+                &interaction_claim,
+                &preprocessed_trace.ids(),
+            );
+            let components = cairo_provers(&component_builder);
+            mp.snap("After component provers setup");
+
+            // Prove STARK.
+            let proof = prove_ex::<SimdBackend, _>(
+                &components,
+                channel,
+                commitment_scheme,
+                include_all_preprocessed_columns,
+            )
+            .unwrap();
+            mp.snap("After prove_ex() (STARK proof done)");
+
+            // Verify.
+            let cairo_proof = cairo_air::CairoProof {
+                claim,
+                interaction_pow,
+                interaction_claim,
+                extended_stark_proof: proof,
+                channel_salt,
+                preprocessed_trace_variant: prover_params.preprocessed_trace,
+            };
+            verify_cairo_ex::<MC>(cairo_proof.into(), include_all_preprocessed_columns).unwrap();
+            mp.snap("After verify (DONE)");
+
+            mp.print_delta_report();
+        }
+
+        /// Same as sn_pie profiler but for pie_10_transfers.
+        /// Run: cargo test --release -p stwo-cairo-prover test_prove_verify_pie10_simd_mem_profile -- \
+        ///        --nocapture --test-threads=1 --ignored
+        #[test]
+        #[ignore = "pie_10_transfers SIMD memory profiling; run manually with --ignored"]
+        fn test_prove_verify_pie10_simd_mem_profile() {
+            use std::sync::Arc;
+
+            use cairo_air::air::CairoComponents;
+            use cairo_air::claims::lookup_sum;
+            use cairo_air::relations::CommonLookupElements;
+            use cairo_air::verifier::{verify_cairo_ex, INTERACTION_POW_BITS};
+            use cairo_air::PreProcessedTraceVariant;
+            use num_traits::Zero;
+            use stwo::core::channel::{Channel, MerkleChannel};
+            use stwo::core::fields::qm31::SecureField;
+            use stwo::core::pcs::PcsConfig;
+            use stwo::core::poly::circle::CanonicCoset;
+            use stwo::core::proof_of_work::GrindOps;
+            use stwo::core::vcs::blake2_merkle::Blake2sMerkleChannel;
+            use stwo::prover::backend::simd::SimdBackend;
+            use stwo::prover::backend::BackendForChannel;
+            use stwo::prover::poly::circle::PolyOps;
+            use stwo::prover::{prove_ex, CommitmentSchemeProver};
+
+            use crate::mem_profile::MemProfiler;
+            use crate::prover::{ChannelHash, ProverParameters, LOG_MAX_ROWS};
+            use crate::utils::cairo_provers;
+            use crate::witness::cairo::create_cairo_claim_generator;
+            use crate::witness::preprocessed_trace::gen_trace;
+            use crate::witness::utils::witness_trace_cells;
+
+            type MC = Blake2sMerkleChannel;
+
+            let mut mp = MemProfiler::new();
+            mp.snap("START (before input load)");
+
+            let input = load_pie_10_transfers_input();
+            mp.snap("After load_pie_10_transfers_input()");
+
+            let prover_params = ProverParameters {
+                channel_hash: ChannelHash::Blake2s,
+                pcs_config: PcsConfig::default(),
+                preprocessed_trace: PreProcessedTraceVariant::Canonical,
+                channel_salt: 0,
+                store_polynomials_coefficients: false,
+                include_all_preprocessed_columns: false,
+            };
+            let ProverParameters {
+                channel_hash: _,
+                channel_salt,
+                pcs_config,
+                preprocessed_trace,
+                store_polynomials_coefficients: _,
+                include_all_preprocessed_columns,
+            } = prover_params;
+
+            let max_domain_size = {
+                let cairo_air_log_degree_bound = 1;
+                if let Some(lifting_log_size) = pcs_config.lifting_log_size {
+                    lifting_log_size
+                } else {
+                    LOG_MAX_ROWS
+                        + std::cmp::max(
+                            cairo_air_log_degree_bound,
+                            pcs_config.fri_config.log_blowup_factor,
+                        )
+                }
+            };
+            let twiddles = SimdBackend::precompute_twiddles(
+                CanonicCoset::new(max_domain_size)
+                    .circle_domain()
+                    .half_coset,
+            );
+            mp.snap("After precompute_twiddles()");
+
+            let channel = &mut <MC as MerkleChannel>::C::default();
+            channel.mix_felts(&[channel_salt.into()]);
+            pcs_config.mix_into(channel);
+            let mut commitment_scheme =
+                CommitmentSchemeProver::<SimdBackend, MC>::new(pcs_config, &twiddles);
+            mp.snap("After CommitmentSchemeProver::new()");
+
+            let preprocessed_trace = Arc::new(preprocessed_trace.to_preprocessed_trace());
+            mp.snap("After to_preprocessed_trace()");
+
+            let mut tree_builder = commitment_scheme.tree_builder();
+            tree_builder.extend_evals(gen_trace(preprocessed_trace.clone()));
+            mp.snap("After preprocessed extend_evals()");
+
+            tree_builder.commit(channel);
+            mp.snap("After preprocessed commit()");
+
+            let cairo_claim_generator =
+                create_cairo_claim_generator(input, preprocessed_trace.clone());
+            mp.snap("After create_cairo_claim_generator()");
+
+            let mut tree_builder = commitment_scheme.tree_builder();
+            let (claim, interaction_generator) =
+                cairo_claim_generator.write_trace(&mut tree_builder);
+            mp.snap("After base trace write_trace()");
+
+            eprintln!(
+                "Witness trace cells: {:?}",
+                witness_trace_cells(&claim, &preprocessed_trace)
+            );
+
+            claim.mix_into(channel);
+            tree_builder.commit(channel);
+            mp.snap("After base trace commit()");
+
+            let interaction_pow = SimdBackend::grind(channel, INTERACTION_POW_BITS);
+            channel.mix_u64(interaction_pow);
+            let interaction_elements = CommonLookupElements::draw(channel);
+            mp.snap("After PoW grind + draw elements");
+
+            let mut tree_builder = commitment_scheme.tree_builder();
+            let interaction_claim = interaction_generator
+                .write_interaction_trace(&mut tree_builder, &interaction_elements);
+            mp.snap("After interaction write_interaction_trace()");
+
+            debug_assert_eq!(
+                lookup_sum(&claim, &interaction_elements, &interaction_claim),
+                SecureField::zero()
+            );
+
+            interaction_claim.mix_into(channel);
+            tree_builder.commit(channel);
+            mp.snap("After interaction trace commit()");
+
+            let component_builder = CairoComponents::new(
+                &claim,
+                &interaction_elements,
+                &interaction_claim,
+                &preprocessed_trace.ids(),
+            );
+            let components = cairo_provers(&component_builder);
+            mp.snap("After component provers setup");
+
+            let proof = prove_ex::<SimdBackend, _>(
+                &components,
+                channel,
+                commitment_scheme,
+                include_all_preprocessed_columns,
+            )
+            .unwrap();
+            mp.snap("After prove_ex() (STARK proof done)");
+
+            let cairo_proof = cairo_air::CairoProof {
+                claim,
+                interaction_pow,
+                interaction_claim,
+                extended_stark_proof: proof,
+                channel_salt,
+                preprocessed_trace_variant: prover_params.preprocessed_trace,
+            };
+            verify_cairo_ex::<MC>(cairo_proof.into(), include_all_preprocessed_columns).unwrap();
+            mp.snap("After verify (DONE)");
+
+            mp.print_delta_report();
+        }
+
+        // ==================== GPU Memory Estimation Tool ====================
+
+        /// Estimates GPU memory requirements from ProverInput.
+        /// Uses the exact code path (write_trace + witness_trace_cells) for precise
+        /// cell counting, then applies calibrated multiplier for GPU peak.
+        ///
+        /// Run: cargo test --release -p stwo-cairo-prover test_gpu_memory_estimator -- \
+        ///        --nocapture --test-threads=1 --ignored
+        #[test]
+        #[ignore = "GPU memory estimation tool; run manually with --ignored"]
+        fn test_gpu_memory_estimator() {
+            use std::sync::Arc;
+
+            use cairo_air::PreProcessedTraceVariant;
+            use stwo::core::pcs::PcsConfig;
+            use stwo::core::poly::circle::CanonicCoset;
+            use stwo::core::vcs::blake2_merkle::Blake2sMerkleChannel;
+            use stwo::prover::backend::simd::SimdBackend;
+            use stwo::prover::poly::circle::PolyOps;
+            use stwo::prover::CommitmentSchemeProver;
+            use stwo_cairo_adapter::ExecutionResources;
+
+            use crate::prover::LOG_MAX_ROWS;
+            use crate::witness::cairo::create_cairo_claim_generator;
+            use crate::witness::utils::witness_trace_cells;
+
+            /// Load input, run write_trace to get CairoClaim, compute exact trace cells.
+            fn estimate_gpu_memory(
+                input: stwo_cairo_adapter::ProverInput,
+                label: &str,
+            ) -> f64 {
+                let er = ExecutionResources::from_prover_input(&input);
+
+                // Print ExecutionResources summary
+                eprintln!("\n{}", "=".repeat(80));
+                eprintln!("  {}", label);
+                eprintln!("{}", "=".repeat(80));
+
+                // Opcode counts
+                eprintln!("\n--- Opcode Counts ---");
+                let mut opcodes: Vec<_> = er.opcodes_instance_counter.iter().collect();
+                opcodes.sort_by(|a, b| b.1.cmp(a.1));
+                for (name, count) in &opcodes {
+                    if **count > 0 {
+                        eprintln!("  {:<40} {:>10}", name, count);
+                    }
+                }
+
+                // Builtin counts
+                eprintln!("\n--- Builtin Counts ---");
+                let mut builtins: Vec<_> = er.builtin_instance_counter.iter().collect();
+                builtins.sort_by(|a, b| b.1.cmp(a.1));
+                for (name, count) in &builtins {
+                    if **count > 0 {
+                        eprintln!("  {:<40} {:>10}", name, count);
+                    }
+                }
+
+                // Memory table sizes
+                eprintln!("\n--- Memory Table Sizes ---");
+                eprintln!("  memory_address_to_id: {:>12}", er.memory_tables_sizes.memory_address_to_id);
+                eprintln!("  memory_id_to_big:     {:>12}", er.memory_tables_sizes.memory_id_to_big);
+                eprintln!("  memory_id_to_small:   {:>12}", er.memory_tables_sizes.memory_id_to_small);
+                eprintln!("  verify_instruction:   {:>12}", er.verify_instruction);
+
+                // Derived sizes for GPU resident data
+                let big_count = er.memory_tables_sizes.memory_id_to_big;
+                let small_count = er.memory_tables_sizes.memory_id_to_small;
+                let big_size = std::cmp::max(big_count.next_multiple_of(16), 16);
+                let small_size = std::cmp::max(small_count.next_multiple_of(16), 16)
+                    .next_power_of_two();
+                let mem_id_to_big_bytes = (9 * big_size * 4 + small_size * 20) as f64 / 1e9;
+                let addr_count = er.memory_tables_sizes.memory_address_to_id;
+                let mem_addr_to_id_bytes = (2 * addr_count.saturating_sub(1) * 4) as f64 / 1e9;
+
+                eprintln!("\n--- GPU Resident Data ---");
+                eprintln!("  mem_id_to_big constructor: {:.2} GB", mem_id_to_big_bytes);
+                eprintln!("  mem_addr_to_id data:       {:.2} GB", mem_addr_to_id_bytes);
+                eprintln!("  twiddles:                  0.26 GB");
+
+                // Run exact trace cell computation
+                let preprocessed_trace =
+                    Arc::new(PreProcessedTraceVariant::Canonical.to_preprocessed_trace());
+                let cairo_claim_generator =
+                    create_cairo_claim_generator(input, preprocessed_trace.clone());
+
+                let pcs_config = PcsConfig::default();
+                let max_domain_size = LOG_MAX_ROWS
+                    + std::cmp::max(1, pcs_config.fri_config.log_blowup_factor);
+                let twiddles = SimdBackend::precompute_twiddles(
+                    CanonicCoset::new(max_domain_size).circle_domain().half_coset,
+                );
+                let mut commitment_scheme =
+                    CommitmentSchemeProver::<SimdBackend, Blake2sMerkleChannel>::new(
+                        pcs_config, &twiddles,
+                    );
+                let mut tree_builder = commitment_scheme.tree_builder();
+                let (claim, _) = cairo_claim_generator.write_trace(&mut tree_builder);
+                let cells = witness_trace_cells(&claim, &preprocessed_trace);
+
+                let preprocessed = cells[0];
+                let base = cells[1];
+                let interaction = cells[2];
+                let total = preprocessed + base + interaction;
+
+                eprintln!("\n--- Exact Trace Cells ---");
+                eprintln!("  Preprocessed: {:>14} ({:>6.1} GB raw)",
+                    preprocessed, preprocessed as f64 * 4.0 / 1e9);
+                eprintln!("  Base trace:   {:>14} ({:>6.1} GB raw)",
+                    base, base as f64 * 4.0 / 1e9);
+                eprintln!("  Interaction:  {:>14} ({:>6.1} GB raw)",
+                    interaction, interaction as f64 * 4.0 / 1e9);
+                eprintln!("  Total:        {:>14} ({:>6.1} GB raw)",
+                    total, total as f64 * 4.0 / 1e9);
+
+                // GPU peak estimation (calibrated from SIMD HWM / raw_data):
+                //   Large workloads (>1B cells): 3.1× (sn_pie: 96.8 GB / 31.3 GB)
+                //   Small workloads (<1B cells): 7.3× (pie_10_transfers: 23.9 GB / 3.3 GB)
+                //   Preprocessed trace dominates small workloads → higher overhead ratio.
+                let raw_gb = total as f64 * 4.0 / 1e9;
+                let multiplier = if total > 1_000_000_000 { 3.1 } else { 7.3 };
+                let estimated_peak = raw_gb * multiplier;
+
+                eprintln!("\n--- GPU Peak Estimate ---");
+                eprintln!("  Formula: total_cells × 4B × {:.1}", multiplier);
+                eprintln!("  Estimated GPU peak: {:.1} GB", estimated_peak);
+
+                // Fit assessment
+                eprintln!("\n  Fit assessment:");
+                if estimated_peak < 24.0 * 0.70 {
+                    eprintln!("    → SAFE on RTX 4090 (24 GB) ✓");
+                } else if estimated_peak < 24.0 * 0.95 {
+                    eprintln!("    → TIGHT on RTX 4090 (24 GB), safe on RTX 5090 (32 GB)");
+                } else if estimated_peak < 32.0 * 0.95 {
+                    eprintln!("    → FITS on RTX 5090 (32 GB), needs streaming on 4090");
+                } else if estimated_peak < 80.0 * 0.95 {
+                    eprintln!("    → NEEDS streaming on consumer GPUs, may fit A100 (80 GB)");
+                } else {
+                    eprintln!("    → NEEDS streaming on all GPUs (peak > 80 GB)");
+                }
+
+                estimated_peak
+            }
+
+            // ---- Run both workloads ----
+            let pie10_input = load_pie_10_transfers_input();
+            let pie10_peak = estimate_gpu_memory(pie10_input, "pie_10_transfers");
+
+            let snpie_input = load_sn_pie_input();
+            let snpie_peak = estimate_gpu_memory(snpie_input, "sn_pie");
+
+            // ---- Summary ----
+            eprintln!("\n{}", "=".repeat(80));
+            eprintln!("  CROSS-VALIDATION SUMMARY");
+            eprintln!("{}", "=".repeat(80));
+            eprintln!("{:<30} {:>18} {:>18}", "", "pie_10_transfers", "sn_pie");
+            eprintln!("{}", "-".repeat(70));
+            eprintln!("{:<30} {:>18} {:>18}", "Estimated peak (GB)",
+                format!("{:.1}", pie10_peak), format!("{:.1}", snpie_peak));
+            eprintln!("{:<30} {:>18} {:>18}", "Measured SIMD HWM (GB)",
+                "23.9", "96.8");
+            eprintln!("{:<30} {:>18} {:>18}", "Estimate/Measured",
+                format!("{:.2}", pie10_peak / 23.9), format!("{:.2}", snpie_peak / 96.8));
+        }
     }
 }
