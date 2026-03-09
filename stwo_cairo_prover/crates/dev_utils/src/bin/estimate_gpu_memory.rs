@@ -20,7 +20,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use cairo_air::PreProcessedTraceVariant;
 use clap::Parser;
 use stwo::core::pcs::PcsConfig;
@@ -56,10 +56,76 @@ struct Args {
     /// Output JSON with structured results (for piping to other tools).
     #[arg(long)]
     json: bool,
+
+    /// Path to simple_bootloader_compiled.json.
+    /// If not set, uses BOOTLOADER_PATH env var, then falls back to auto-detection
+    /// relative to the source tree.
+    #[arg(long = "bootloader")]
+    bootloader_path: Option<PathBuf>,
+}
+
+const BOOTLOADER_RELATIVE: &str = "proving-utils/crates/cairo-program-runner-lib/resources/compiled_programs/bootloaders/simple_bootloader_compiled.json";
+
+/// Resolve the bootloader path. Priority:
+/// 1. --bootloader CLI arg
+/// 2. BOOTLOADER_PATH env var
+/// 3. Auto-detect relative to CARGO_MANIFEST_DIR (source tree)
+fn resolve_bootloader_path(cli_override: Option<&PathBuf>) -> Result<PathBuf> {
+    // 1. CLI arg
+    if let Some(p) = cli_override {
+        if p.exists() {
+            return Ok(p.clone());
+        }
+        bail!(
+            "Bootloader not found at --bootloader path: {}\n\
+             Provide a valid path to simple_bootloader_compiled.json",
+            p.display()
+        );
+    }
+
+    // 2. Env var
+    if let Ok(env_path) = std::env::var("BOOTLOADER_PATH") {
+        let p = PathBuf::from(&env_path);
+        if p.exists() {
+            return Ok(p);
+        }
+        bail!(
+            "Bootloader not found at BOOTLOADER_PATH={}\n\
+             Provide a valid path to simple_bootloader_compiled.json",
+            env_path
+        );
+    }
+
+    // 3. Auto-detect: walk up from CARGO_MANIFEST_DIR looking for proving-utils/
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut dir = manifest_dir.as_path();
+    for _ in 0..6 {
+        let candidate = dir.join(BOOTLOADER_RELATIVE);
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+        match dir.parent() {
+            Some(parent) => dir = parent,
+            None => break,
+        }
+    }
+
+    bail!(
+        "Could not find simple_bootloader_compiled.json.\n\
+         Searched up from: {}\n\n\
+         Fix: set BOOTLOADER_PATH env var or pass --bootloader <path>\n\
+         Example:\n  \
+           export BOOTLOADER_PATH=/path/to/simple_bootloader_compiled.json\n  \
+           cargo run --release --bin estimate_gpu_memory -- --pie my.pie.zip",
+        manifest_dir.display()
+    );
 }
 
 /// Load a CairoPie file and produce ProverInput via bootloader execution.
-fn load_pie_input(pie_path: &std::path::Path) -> Result<ProverInput> {
+fn load_pie_input(
+    pie_path: &std::path::Path,
+    bootloader_override: Option<&PathBuf>,
+) -> Result<ProverInput> {
     use std::rc::Rc;
 
     use cairo_program_runner_lib::tasks::create_pie_task;
@@ -71,7 +137,17 @@ fn load_pie_input(pie_path: &std::path::Path) -> Result<ProverInput> {
     use cairo_vm::types::program::Program;
     use stwo_cairo_adapter::adapter::adapt;
 
-    let task = create_pie_task(pie_path)?;
+    // Check PIE file exists first
+    if !pie_path.exists() {
+        bail!(
+            "PIE file not found: {}\n\
+             Check the path and try again.",
+            pie_path.display()
+        );
+    }
+
+    let task = create_pie_task(pie_path)
+        .with_context(|| format!("Failed to load CairoPie from: {}", pie_path.display()))?;
     let task_spec = TaskSpec {
         task: Rc::new(task),
         program_hash_function: HashFunc::Blake,
@@ -82,19 +158,14 @@ fn load_pie_input(pie_path: &std::path::Path) -> Result<ProverInput> {
         tasks: vec![task_spec],
     };
 
-    // dev_utils is at stwo_cairo_prover/crates/dev_utils
-    // bootloader is at ../../proving-utils/... relative to stwo-cairo-v1.1.0/
-    let bootloader_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent() // crates/
-        .unwrap()
-        .parent() // stwo_cairo_prover/
-        .unwrap()
-        .parent() // stwo-cairo-v1.1.0/
-        .unwrap()
-        .parent() // stwo-cairo-latest/
-        .unwrap()
-        .join("proving-utils/crates/cairo-program-runner-lib/resources/compiled_programs/bootloaders/simple_bootloader_compiled.json");
-    let bootloader_program = Program::from_file(bootloader_path.as_path(), Some("main"))?;
+    let bootloader_path = resolve_bootloader_path(bootloader_override)?;
+    let bootloader_program = Program::from_file(bootloader_path.as_path(), Some("main"))
+        .with_context(|| {
+            format!(
+                "Failed to load bootloader from: {}",
+                bootloader_path.display()
+            )
+        })?;
 
     let cairo_run_config = RunMode::Proof {
         layout: LayoutName::all_cairo_stwo,
@@ -109,9 +180,10 @@ fn load_pie_input(pie_path: &std::path::Path) -> Result<ProverInput> {
         Some(ProgramInput::Value(Box::new(bootloader_input))),
         cairo_run_config,
         None,
-    )?;
+    )
+    .context("Failed to run PIE through bootloader")?;
 
-    Ok(adapt(&runner)?)
+    adapt(&runner).context("Failed to adapt runner to ProverInput")
 }
 
 struct EstimationResult {
@@ -332,7 +404,7 @@ fn main() -> Result<()> {
         if !args.json {
             eprintln!("Loading PIE from: {}", pie_path.display());
         }
-        (load_pie_input(pie_path)?, label)
+        (load_pie_input(pie_path, args.bootloader_path.as_ref())?, label)
     } else {
         let path = args.prover_input_path.as_ref().unwrap();
         let label = path

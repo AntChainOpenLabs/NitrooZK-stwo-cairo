@@ -1408,7 +1408,9 @@ pub mod tests {
         }
 
         fn load_sn_pie_input() -> ProverInput {
-            load_pie_input(std::path::Path::new("/root/starkware/opensource/sn_pie"))
+            let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../test_data/sn_pie");
+            load_pie_input(&path)
         }
 
         #[test]
