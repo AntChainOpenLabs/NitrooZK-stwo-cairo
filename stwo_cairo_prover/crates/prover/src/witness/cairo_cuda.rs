@@ -10,8 +10,6 @@
 use std::array;
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::Instant;
-
 use cairo_air::claims::{CairoClaim, CairoInteractionClaim};
 use cairo_air::relations::CommonLookupElements;
 use stwo::core::fields::m31::M31;
@@ -664,10 +662,7 @@ impl NativeCairoCudaClaimGenerator {
         mut self,
         tree_builder: &mut impl TreeBuilder<CudaBackend>,
     ) -> (CairoClaim, NativeCairoCudaInteractionClaimGenerator) {
-        let bt_total = Instant::now();
-
         // ==== 1. Generate opcode traces (CUDA) ====
-        let bt_step = Instant::now();
         let span = span!(Level::INFO, "base_trace: opcodes").entered();
         let (opcodes_claim, opcodes_interaction_gen) = self.opcodes_cuda.write_trace(
             tree_builder,
@@ -680,10 +675,8 @@ impl NativeCairoCudaClaimGenerator {
             &self.vbx_8_cuda,
         );
         span.exit();
-        eprintln!("[BT-PROFILE]   1. opcodes:              {:>6}ms", bt_step.elapsed().as_millis());
 
         // ==== 2. Generate verify_instruction trace (CUDA) ====
-        let bt_step = Instant::now();
         let span = span!(Level::INFO, "base_trace: verify_instruction").entered();
         let (verify_instruction_claim, verify_instruction_interaction_gen) =
             self.verify_instruction_cuda.write_trace(
@@ -694,10 +687,8 @@ impl NativeCairoCudaClaimGenerator {
                 &self.range_checks_trace_generator.rc_7_2_5_trace_generator,
             );
         span.exit();
-        eprintln!("[BT-PROFILE]   2. verify_instruction:   {:>6}ms", bt_step.elapsed().as_millis());
 
         // ==== 3. Generate blake_context traces (CUDA) ====
-        let bt_step = Instant::now();
         let span = span!(Level::INFO, "base_trace: blake_context").entered();
         let (
             blake_round_claim,
@@ -769,10 +760,8 @@ impl NativeCairoCudaClaimGenerator {
             (None, None, None, None, None, None)
         };
         span.exit();
-        eprintln!("[BT-PROFILE]   3. blake_context:        {:>6}ms", bt_step.elapsed().as_millis());
 
         // ==== 4. Generate builtins traces ====
-        let bt_step = Instant::now();
         let span = span!(Level::INFO, "base_trace: builtins").entered();
 
         let (add_mod_builtin_claim, add_mod_builtin_interaction_gen) = self
@@ -908,10 +897,8 @@ impl NativeCairoCudaClaimGenerator {
             .unzip();
 
         span.exit();
-        eprintln!("[BT-PROFILE]   4. builtins:             {:>6}ms", bt_step.elapsed().as_millis());
 
         // ==== 5. Generate pedersen_context traces ====
-        let bt_step = Instant::now();
         let span = span!(Level::INFO, "base_trace: pedersen_context").entered();
 
         // Wide path: CUDA pedersen context (window_bits_18)
@@ -1009,13 +996,11 @@ impl NativeCairoCudaClaimGenerator {
         };
 
         span.exit();
-        eprintln!("[BT-PROFILE]   5. pedersen_context:     {:>6}ms", bt_step.elapsed().as_millis());
 
         // ==== 5.5 Poseidon aggregator (encapsulated CUDA wrapper) ====
         // The PoseidonAggregatorCudaClaimGenerator was created and populated by step 4's
         // poseidon_builtin wrapper. Now run the aggregator (SIMD internal), convert to CUDA,
         // and feed downstream CUDA chain generators.
-        let bt_step = Instant::now();
         let span = span!(Level::INFO, "base_trace: poseidon aggregator (CUDA wrapper)").entered();
         let (
             poseidon_aggregator_claim,
@@ -1033,14 +1018,12 @@ impl NativeCairoCudaClaimGenerator {
             None => (None, None),
         };
         span.exit();
-        eprintln!("[BT-PROFILE]  5.5 poseidon_aggregator:  {:>6}ms", bt_step.elapsed().as_millis());
 
         // ==== 6. Generate poseidon chain traces (CUDA) ====
         // PoseidonContextCudaClaimGenerator runs the CUDA chain generators
         // (full_round_chain, 3_partial_rounds_chain, cube_252, round_keys, rc_252w27).
         // Their inputs were populated either by step 5.5 (SIMD aggregator conversion)
         // or are empty (non-poseidon workloads).
-        let bt_step = Instant::now();
         let span = span!(Level::INFO, "base_trace: poseidon_context (CUDA chains)").entered();
         let (poseidon_context_claim, poseidon_context_interaction_gen) =
             match self.poseidon_context_cuda {
@@ -1052,18 +1035,14 @@ impl NativeCairoCudaClaimGenerator {
                 None => (None, None),
             };
         span.exit();
-        eprintln!("[BT-PROFILE]   6. poseidon_context:     {:>6}ms", bt_step.elapsed().as_millis());
 
         // ==== 7. Generate memory_address_to_id (CUDA) ====
-        let bt_step = Instant::now();
         let span = span!(Level::INFO, "base_trace: memory_address_to_id").entered();
         let (memory_address_to_id_claim, memory_address_to_id_interaction_gen) =
             self.memory_address_to_id_cuda.write_trace(tree_builder);
         span.exit();
-        eprintln!("[BT-PROFILE]   7. memory_address_to_id: {:>6}ms", bt_step.elapsed().as_millis());
 
         // ==== 8. Generate memory_id_to_big (CUDA) ====
-        let bt_step = Instant::now();
         let span = span!(Level::INFO, "base_trace: memory_id_to_big").entered();
         const LOG_MAX_BIG_SIZE: u32 = MAX_SEQUENCE_LOG_SIZE;
         let (memory_id_to_value_claim, memory_id_to_value_interaction_gen) =
@@ -1073,18 +1052,14 @@ impl NativeCairoCudaClaimGenerator {
                 LOG_MAX_BIG_SIZE,
             );
         span.exit();
-        eprintln!("[BT-PROFILE]   8. memory_id_to_big:     {:>6}ms", bt_step.elapsed().as_millis());
 
         // ==== 9. Generate range_checks (CUDA) ====
-        let bt_step = Instant::now();
         let span = span!(Level::INFO, "base_trace: range_checks").entered();
         let (range_checks_claim, range_checks_interaction_gen) =
             self.range_checks_trace_generator.write_trace(tree_builder);
         span.exit();
-        eprintln!("[BT-PROFILE]   9. range_checks:         {:>6}ms", bt_step.elapsed().as_millis());
 
         // ==== 10. Generate verify_bitwise_xor 4, 7, 8, 9 (all CUDA) ====
-        let bt_step = Instant::now();
         let span = span!(Level::INFO, "base_trace: verify_bitwise_xor").entered();
         let (verify_bitwise_xor_4_claim, verify_bitwise_xor_4_interaction_gen) =
             self.vbx_4_cuda.write_trace_cuda(tree_builder);
@@ -1104,8 +1079,6 @@ impl NativeCairoCudaClaimGenerator {
         let (verify_bitwise_xor_9_claim, verify_bitwise_xor_9_interaction_gen) =
             self.vbx_9_cuda.write_trace_cuda(tree_builder);
         span.exit();
-        eprintln!("[BT-PROFILE]  10. verify_bitwise_xor:  {:>6}ms", bt_step.elapsed().as_millis());
-        eprintln!("[BT-PROFILE]  TOTAL write_trace:       {:>6}ms", bt_total.elapsed().as_millis());
 
         // Assemble flat CairoClaim matching v1.1.0 struct field order.
         // Opcodes: unpack from grouped OpcodeClaim → individual Option fields.
@@ -1295,28 +1268,21 @@ impl NativeCairoCudaInteractionClaimGenerator {
         tree_builder: &mut impl TreeBuilder<CudaBackend>,
         common_lookup_elements: &CommonLookupElements,
     ) -> CairoInteractionClaim {
-        let it_total = Instant::now();
-
         // ==== 1. Opcodes interaction traces (CUDA) ====
-        let it_step = Instant::now();
         let span = span!(Level::INFO, "interaction_trace: opcodes").entered();
         let opcodes_interaction_claim = self
             .opcodes_interaction_gen
             .write_interaction_trace(tree_builder, common_lookup_elements);
         span.exit();
-        eprintln!("[IT-PROFILE]   1. opcodes:              {:>6}ms", it_step.elapsed().as_millis());
 
         // ==== 2. verify_instruction interaction trace (CUDA) ====
-        let it_step = Instant::now();
         let span = span!(Level::INFO, "interaction_trace: verify_instruction").entered();
         let verify_instruction_interaction_claim = self
             .verify_instruction_interaction_gen
             .write_interaction_trace(tree_builder, common_lookup_elements);
         span.exit();
-        eprintln!("[IT-PROFILE]   2. verify_instruction:   {:>6}ms", it_step.elapsed().as_millis());
 
         // ==== 3. blake_context interaction trace (CUDA) ====
-        let it_step = Instant::now();
         let span = span!(Level::INFO, "interaction_trace: blake_context").entered();
         let (
             blake_round_interaction,
@@ -1351,10 +1317,8 @@ impl NativeCairoCudaInteractionClaimGenerator {
             (None, None, None, None, None)
         };
         span.exit();
-        eprintln!("[IT-PROFILE]   3. blake_context:        {:>6}ms", it_step.elapsed().as_millis());
 
         // ==== 4. builtins interaction trace ====
-        let it_step = Instant::now();
         let span = span!(Level::INFO, "interaction_trace: builtins").entered();
         let add_mod_bi = self
             .builtins_interaction_gen
@@ -1390,10 +1354,8 @@ impl NativeCairoCudaInteractionClaimGenerator {
             .range_check_128
             .map(|gen| gen.write_interaction_trace(tree_builder, common_lookup_elements));
         span.exit();
-        eprintln!("[IT-PROFILE]   4. builtins:             {:>6}ms", it_step.elapsed().as_millis());
 
         // ==== 5. pedersen_context interaction trace ====
-        let it_step = Instant::now();
         let span = span!(Level::INFO, "interaction_trace: pedersen_context").entered();
         // Wide path: CUDA pedersen context (window_bits_18)
         let pedersen_context_interaction = match self.pedersen_context_interaction_gen {
@@ -1413,20 +1375,16 @@ impl NativeCairoCudaInteractionClaimGenerator {
             _ => None,
         };
         span.exit();
-        eprintln!("[IT-PROFILE]   5. pedersen_context:     {:>6}ms", it_step.elapsed().as_millis());
 
         // ==== 5.5. poseidon_aggregator interaction trace (encapsulated CUDA wrapper) ====
-        let it_step = Instant::now();
         let span =
             span!(Level::INFO, "interaction_trace: poseidon_aggregator (CUDA wrapper)").entered();
         let poseidon_aggregator_interaction =
             self.poseidon_aggregator_cuda_interaction_gen
                 .map(|gen| gen.write_interaction_trace(tree_builder, common_lookup_elements));
         span.exit();
-        eprintln!("[IT-PROFILE]  5.5 poseidon_aggregator:  {:>6}ms", it_step.elapsed().as_millis());
 
         // ==== 6. poseidon_context interaction trace (CUDA chains) ====
-        let it_step = Instant::now();
         let span = span!(Level::INFO, "interaction_trace: poseidon_context").entered();
         let poseidon_context_interaction = match self.poseidon_context_interaction_gen {
             Some(gen) => {
@@ -1437,37 +1395,29 @@ impl NativeCairoCudaInteractionClaimGenerator {
             None => None,
         };
         span.exit();
-        eprintln!("[IT-PROFILE]   6. poseidon_context:     {:>6}ms", it_step.elapsed().as_millis());
 
         // ==== 7. memory_address_to_id interaction trace (CUDA) ====
-        let it_step = Instant::now();
         let span = span!(Level::INFO, "interaction_trace: memory_address_to_id").entered();
         let memory_address_to_id_interaction_claim = self
             .memory_address_to_id_interaction_gen
             .write_interaction_trace(tree_builder, common_lookup_elements);
         span.exit();
-        eprintln!("[IT-PROFILE]   7. memory_address_to_id: {:>6}ms", it_step.elapsed().as_millis());
 
         // ==== 8. memory_id_to_big interaction trace (CUDA) ====
-        let it_step = Instant::now();
         let span = span!(Level::INFO, "interaction_trace: memory_id_to_big").entered();
         let memory_id_to_value_interaction_claim = self
             .memory_id_to_value_interaction_gen
             .write_interaction_trace(tree_builder, common_lookup_elements);
         span.exit();
-        eprintln!("[IT-PROFILE]   8. memory_id_to_big:     {:>6}ms", it_step.elapsed().as_millis());
 
         // ==== 9. range_checks interaction trace (CUDA) ====
-        let it_step = Instant::now();
         let span = span!(Level::INFO, "interaction_trace: range_checks").entered();
         let range_checks_interaction_claim = self
             .range_checks_interaction_gen
             .write_interaction_trace(tree_builder, common_lookup_elements);
         span.exit();
-        eprintln!("[IT-PROFILE]   9. range_checks:         {:>6}ms", it_step.elapsed().as_millis());
 
         // ==== 10. verify_bitwise_xor interaction traces (all CUDA) ====
-        let it_step = Instant::now();
         let span = span!(Level::INFO, "interaction_trace: verify_bitwise_xor").entered();
         let verify_bitwise_xor_4_interaction_claim = self
             .verify_bitwise_xor_4_interaction_gen
@@ -1482,8 +1432,6 @@ impl NativeCairoCudaInteractionClaimGenerator {
             .verify_bitwise_xor_9_interaction_gen
             .write_interaction_trace(tree_builder, common_lookup_elements);
         span.exit();
-        eprintln!("[IT-PROFILE]  10. verify_bitwise_xor:  {:>6}ms", it_step.elapsed().as_millis());
-        eprintln!("[IT-PROFILE]  TOTAL interaction_trace: {:>6}ms", it_total.elapsed().as_millis());
 
         // Assemble flat CairoInteractionClaim matching v1.1.0 struct field order.
         CairoInteractionClaim {

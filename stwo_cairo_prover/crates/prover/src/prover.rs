@@ -371,13 +371,8 @@ where
     stwo::prover::backend::cuda::CudaBackend: BackendForChannel<MC>,
     SimdBackend: BackendForChannel<MC>,
 {
-    use std::time::Instant;
-
     use stwo::prover::backend::cuda::CudaBackend;
     use stwo::prover::prove;
-
-    // Poseidon workloads now use SIMD hybrid pipeline (poseidon_builtin + poseidon_aggregator
-    // via SIMD, chain sub-components via CUDA). No V0 fallback needed.
 
     let _span = span!(Level::INFO, "prove_cairo_cuda").entered();
     let ProverParameters {
@@ -389,7 +384,6 @@ where
         include_all_preprocessed_columns: _,
     } = prover_params;
 
-    let total_start = Instant::now();
     stwo::stwo_cuda::print_cuda_memory("[CUDA] START");
 
     let cairo_air_log_degree_bound = 1;
@@ -400,7 +394,6 @@ where
         );
 
     // Twiddles for CUDA backend.
-    let t = Instant::now();
     tracing::info!("[CUDA] Computing twiddles for CUDA backend");
     let twiddles = CudaBackend::precompute_twiddles(
         CanonicCoset::new(max_domain_size)
@@ -417,81 +410,53 @@ where
     pcs_config.mix_into(channel);
     let mut commitment_scheme =
         CommitmentSchemeProver::<CudaBackend, MC>::new(pcs_config, &twiddles);
-    // Always store polynomial coefficients for the native CUDA path.
-    // This enables fast batched GPU OODS evaluation via batch_eval_at_point()
-    // (~15 kernel launches) instead of slow per-polynomial CPU barycentric weights
-    // (~400 individual evaluations). +50% GPU memory for coefficients is acceptable
-    // since this path already assumes all data fits in GPU memory.
-    commitment_scheme.set_store_polynomials_coefficients();
-    eprintln!("[PROFILE] twiddles + scheme:          {:>6}ms", t.elapsed().as_millis());
+
+    if store_polynomials_coefficients {
+        commitment_scheme.set_store_polynomials_coefficients();
+    }
 
     // Preprocessed trace — generate on GPU.
-    let t = Instant::now();
     tracing::info!("[CUDA] Generating preprocessed trace");
     let preprocessed_trace = Arc::new(preprocessed_trace.to_preprocessed_trace());
     let evals =
         crate::witness::preprocessed_trace_cuda::gen_preprocessed_trace_cuda(&preprocessed_trace);
-    let t_gen = t.elapsed().as_millis();
-    let t2 = Instant::now();
     let polys =
         crate::witness::preprocessed_trace_cuda::interpolate_columns_batched(evals, &twiddles);
-    let t_interp = t2.elapsed().as_millis();
     stwo::stwo_cuda::print_cuda_memory("[CUDA] After preprocessed interpolation");
-    let t3 = Instant::now();
     let mut tree_builder = commitment_scheme.tree_builder();
     tree_builder.extend_polys(polys);
     tree_builder.commit(channel);
-    let t_commit = t3.elapsed().as_millis();
-    eprintln!("[PROFILE] preprocessed: gen            {:>6}ms", t_gen);
-    eprintln!("[PROFILE] preprocessed: interp         {:>6}ms", t_interp);
-    eprintln!("[PROFILE] preprocessed: commit         {:>6}ms", t_commit);
-    eprintln!("[PROFILE] preprocessed: total          {:>6}ms", t.elapsed().as_millis());
     stwo::stwo_cuda::print_cuda_memory("[CUDA] After preprocessed commit");
 
     // Base trace — native CUDA generation (per-component GPU kernels, no SIMD bridge).
-    let t = Instant::now();
     tracing::info!("[CUDA] Generating base trace (native CUDA)");
     let native_cuda_gen = crate::witness::cairo_cuda::create_native_cairo_cuda_claim_generator(
         input,
         preprocessed_trace.clone(),
     );
-    let t_ctor = t.elapsed().as_millis();
-    eprintln!("[PROFILE] base_trace: ctor             {:>6}ms", t_ctor);
     let mut tree_builder = commitment_scheme.tree_builder();
-    let t2 = Instant::now();
     let span = span!(Level::INFO, "Base trace (CUDA native)").entered();
     let (claim, interaction_generator) =
         native_cuda_gen.write_trace(&mut tree_builder);
     span.exit();
-    let t_write = t2.elapsed().as_millis();
-    eprintln!("[PROFILE] base_trace: write_trace      {:>6}ms", t_write);
     stwo::stwo_cuda::print_cuda_memory("[CUDA] After base trace extend");
 
     claim.mix_into(channel);
-    let t3 = Instant::now();
     tree_builder.commit(channel);
-    let t_bt_commit = t3.elapsed().as_millis();
-    eprintln!("[PROFILE] commit: base_trace           {:>6}ms", t_bt_commit);
-    eprintln!("[PROFILE] base_trace: total            {:>6}ms", t.elapsed().as_millis());
     stwo::stwo_cuda::print_cuda_memory("[CUDA] After base trace commit");
 
     // Draw interaction elements.
-    let t = Instant::now();
     let interaction_pow = CudaBackend::grind(channel, INTERACTION_POW_BITS);
     channel.mix_u64(interaction_pow);
-    eprintln!("[PROFILE] proof_of_work:               {:>6}ms", t.elapsed().as_millis());
     let interaction_elements = CommonLookupElements::draw(channel);
 
     // Interaction trace — native CUDA generation (per-component GPU kernels).
-    let t = Instant::now();
     tracing::info!("[CUDA] Generating interaction trace (native CUDA)");
     let mut tree_builder = commitment_scheme.tree_builder();
     let span = span!(Level::INFO, "Interaction trace (CUDA native)").entered();
     let interaction_claim = interaction_generator
         .write_interaction_trace(&mut tree_builder, &interaction_elements);
     span.exit();
-    let t_it_write = t.elapsed().as_millis();
-    eprintln!("[PROFILE] interaction_trace:            {:>6}ms", t_it_write);
     stwo::stwo_cuda::print_cuda_memory("[CUDA] After interaction trace extend");
 
     tracing::info!(
@@ -506,10 +471,7 @@ where
     );
 
     interaction_claim.mix_into(channel);
-    let t2 = Instant::now();
     tree_builder.commit(channel);
-    let t_it_commit = t2.elapsed().as_millis();
-    eprintln!("[PROFILE] commit: interaction           {:>6}ms", t_it_commit);
     stwo::stwo_cuda::print_cuda_memory("[CUDA] After interaction trace commit");
 
     // Component provers with CUDA backend.
@@ -523,14 +485,11 @@ where
     stwo::stwo_cuda::print_cuda_memory("[CUDA] After provers_cuda");
 
     // Prove STARK with CudaBackend.
-    let t = Instant::now();
     let span = span!(Level::INFO, "Prove STARKs (CUDA native)").entered();
     stwo::stwo_cuda::print_cuda_memory("[CUDA] Before prove()");
     let proof = prove::<CudaBackend, _>(&components, channel, commitment_scheme)?;
     stwo::stwo_cuda::print_cuda_memory("[CUDA] After prove()");
     span.exit();
-    eprintln!("[PROFILE] prove: stark                 {:>6}ms", t.elapsed().as_millis());
-    eprintln!("[PROFILE] TOTAL                        {:>6}ms", total_start.elapsed().as_millis());
 
     event!(
         name: "component_info",
@@ -1369,7 +1328,7 @@ pub mod tests {
                 },
                 preprocessed_trace: PreProcessedTraceVariant::CanonicalWithoutPedersen,
                 channel_salt: 0,
-                store_polynomials_coefficients: false,
+                store_polynomials_coefficients: true,
                 include_all_preprocessed_columns: false,
             };
             let cairo_proof =
@@ -1391,7 +1350,7 @@ pub mod tests {
                 },
                 preprocessed_trace: PreProcessedTraceVariant::CanonicalSmall,
                 channel_salt: 0,
-                store_polynomials_coefficients: false,
+                store_polynomials_coefficients: true,
                 include_all_preprocessed_columns: false,
             };
             let cairo_proof =
@@ -1414,14 +1373,18 @@ pub mod tests {
         }
 
         #[test]
-        fn test_prove_verify_pie_cuda_once() {
+        fn test_prove_verify_small_pie_cuda_once() {
             let input = load_pie_10_transfers_input();
             let prover_params = ProverParameters {
                 channel_hash: ChannelHash::Blake2s,
-                pcs_config: PcsConfig::default(),
+                pcs_config: PcsConfig {
+                    pow_bits: 26,
+                    fri_config: FriConfig::new(0, 1, 70, 1),
+                    lifting_log_size: None,
+                },
                 preprocessed_trace: PreProcessedTraceVariant::CanonicalSmall,
                 channel_salt: 0,
-                store_polynomials_coefficients: false,
+                store_polynomials_coefficients: true,
                 include_all_preprocessed_columns: false,
             };
             let timer = std::time::Instant::now();
@@ -1432,7 +1395,7 @@ pub mod tests {
         }
 
         #[test]
-        fn test_prove_verify_pie_cuda_multi() {
+        fn test_prove_verify_small_pie_cuda_multi() {
             let loop_count: usize = std::env::var("PROVE_LOOP_COUNT")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -1442,10 +1405,14 @@ pub mod tests {
                 let input = load_pie_10_transfers_input();
                 let prover_params = ProverParameters {
                     channel_hash: ChannelHash::Blake2s,
-                    pcs_config: PcsConfig::default(),
+                    pcs_config: PcsConfig {
+                        pow_bits: 26,
+                        fri_config: FriConfig::new(0, 1, 70, 1),
+                        lifting_log_size: None,
+                    },
                     preprocessed_trace: PreProcessedTraceVariant::CanonicalSmall,
                     channel_salt: 0,
-                    store_polynomials_coefficients: false,
+                    store_polynomials_coefficients: true,
                     include_all_preprocessed_columns: false,
                 };
                 let timer = std::time::Instant::now();
