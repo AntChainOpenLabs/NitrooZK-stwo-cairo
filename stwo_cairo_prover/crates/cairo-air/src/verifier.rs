@@ -25,7 +25,7 @@ use crate::components::{
     pedersen_builtin_narrow_windows, poseidon_builtin, range_check96_builtin, range_check_builtin,
 };
 use crate::relations::CommonLookupElements;
-use crate::{CairoProofCuda, CairoProofForRustVerifier};
+use crate::CairoProofForRustVerifier;
 
 fn verify_claim(claim: &CairoClaim) {
     let PublicData {
@@ -387,82 +387,6 @@ pub fn verify_cairo_ex<MC: MerkleChannel>(
         commitment_scheme_verifier,
         stark_proof,
         include_all_preprocessed_columns,
-    )
-    .map_err(CairoVerificationError::Stark)
-}
-
-/// Verify a CUDA proof using non-lifted MerkleChannel.
-///
-/// This mirrors `verify_cairo_ex` but uses the non-lifted `MerkleChannel` and `StarkProof`
-/// (via `verify` instead of `verify_ex`), compatible with the CUDA proving path.
-pub fn verify_cairo_cuda<MC: MerkleChannel>(
-    CairoProofCuda {
-        claim,
-        interaction_pow,
-        interaction_claim,
-        stark_proof,
-        channel_salt,
-        preprocessed_trace_variant,
-    }: CairoProofCuda<MC::H>,
-) -> Result<(), CairoVerificationError> {
-    let _span = span!(Level::INFO, "verify_cairo_cuda").entered();
-
-    // Auxiliary verifications.
-    assert!(
-        (1 << claim.memory_address_to_id.as_ref().unwrap().log_size) * MEMORY_ADDRESS_TO_ID_SPLIT
-            <= (1 << LOG_MEMORY_ADDRESS_BOUND)
-    );
-
-    verify_claim(&claim);
-
-    let channel = &mut MC::C::default();
-    if let Some(salt) = channel_salt {
-        channel.mix_u64(salt);
-    }
-
-    let pcs_config = stark_proof.config;
-    pcs_config.mix_into(channel);
-    let commitment_scheme_verifier = &mut CommitmentSchemeVerifier::<MC>::new(pcs_config);
-
-    let mut log_sizes = claim.log_sizes();
-    log_sizes[PREPROCESSED_TRACE_IDX] = preprocessed_trace_variant
-        .to_preprocessed_trace()
-        .log_sizes();
-
-    // Preprocessed trace.
-    commitment_scheme_verifier.commit(stark_proof.commitments[0], &log_sizes[0], channel);
-
-    claim.mix_into(channel);
-    commitment_scheme_verifier.commit(stark_proof.commitments[1], &log_sizes[1], channel);
-
-    // Proof of work.
-    if !channel.verify_pow_nonce(INTERACTION_POW_BITS, interaction_pow) {
-        return Err(CairoVerificationError::ProofOfWork);
-    }
-    channel.mix_u64(interaction_pow);
-    let interaction_elements = CommonLookupElements::draw(channel);
-
-    // Verify lookup argument.
-    if lookup_sum(&claim, &interaction_elements, &interaction_claim) != SecureField::zero() {
-        return Err(CairoVerificationError::InvalidLogupSum);
-    }
-    interaction_claim.mix_into(channel);
-    commitment_scheme_verifier.commit(stark_proof.commitments[2], &log_sizes[2], channel);
-
-    let component_generator = CairoComponents::new(
-        &claim,
-        &interaction_elements,
-        &interaction_claim,
-        &preprocessed_trace_variant.to_preprocessed_trace().ids(),
-    );
-    let components = component_generator.components();
-
-    // Verify stark.
-    stwo::core::verifier::verify(
-        &components,
-        channel,
-        commitment_scheme_verifier,
-        stark_proof,
     )
     .map_err(CairoVerificationError::Stark)
 }

@@ -110,16 +110,18 @@ where
         commitment_scheme.set_store_polynomials_coefficients();
     }
     // Preprocessed trace.
+    let span = span!(Level::INFO, "Preprocessed trace (SIMD)").entered();
     let preprocessed_trace = Arc::new(preprocessed_trace.to_preprocessed_trace());
     let mut tree_builder = commitment_scheme.tree_builder();
     tree_builder.extend_evals(gen_trace(preprocessed_trace.clone()));
     tree_builder.commit(channel);
+    span.exit();
 
     // Run Cairo.
     let cairo_claim_generator = create_cairo_claim_generator(input, preprocessed_trace.clone());
     // Base trace.
     let mut tree_builder = commitment_scheme.tree_builder();
-    let span = span!(Level::INFO, "Base trace").entered();
+    let span = span!(Level::INFO, "Base trace (SIMD)").entered();
     let (claim, interaction_generator) = cairo_claim_generator.write_trace(&mut tree_builder);
     span.exit();
 
@@ -132,7 +134,7 @@ where
     let interaction_elements = CommonLookupElements::draw(channel);
 
     // Interaction trace.
-    let span = span!(Level::INFO, "Interaction trace").entered();
+    let span = span!(Level::INFO, "Interaction trace (SIMD)").entered();
     let mut tree_builder = commitment_scheme.tree_builder();
     let interaction_claim =
         interaction_generator.write_interaction_trace(&mut tree_builder, &interaction_elements);
@@ -174,7 +176,7 @@ where
     let components = cairo_provers(&component_builder);
 
     // Prove stark.
-    let span = span!(Level::INFO, "Prove STARKs").entered();
+    let span = span!(Level::INFO, "Prove STARKs (SIMD)").entered();
     let proof = prove_ex::<SimdBackend, _>(
         &components,
         channel,
@@ -243,10 +245,7 @@ where
 
     // Setup protocol with CudaBackend.
     let channel = &mut MC::C::default();
-    // CUDA path uses Option<u64> salt semantics: only mix if non-zero.
-    if channel_salt != 0 {
-        channel.mix_u64(channel_salt as u64);
-    }
+    channel.mix_felts(&[channel_salt.into()]);
     pcs_config.mix_into(channel);
     let mut commitment_scheme =
         CommitmentSchemeProver::<CudaBackend, MC>::new(pcs_config, &twiddles);
@@ -339,30 +338,21 @@ where
         component_builder
     );
 
-    let cuda_channel_salt = if channel_salt != 0 {
-        Some(channel_salt as u64)
-    } else {
-        None
-    };
-
     Ok(CairoProofCuda {
         claim,
         interaction_pow,
         interaction_claim,
         stark_proof: proof,
-        channel_salt: cuda_channel_salt,
+        channel_salt: Some(channel_salt as u64),
         preprocessed_trace_variant: prover_params.preprocessed_trace,
     })
 }
 
-/// Native CUDA proving path with per-component SIMD→CUDA dispatch.
+/// Native CUDA proving path with per-component GPU witness generation.
 ///
 /// Unlike `prove_cairo_cuda_v0` (which batch-collects all SIMD traces then converts),
-/// this path converts each component's trace to CUDA inline via `SimdToCudaBridge`,
-/// enabling incremental upgrade to native CUDA kernels per-component.
-///
-/// Currently all components use SIMD fallback — functionally equivalent to V0 but
-/// structured for per-component CUDA acceleration.
+/// this path generates trace columns directly on GPU for the native CUDA components and
+/// keeps the proving pipeline on `CudaBackend` end-to-end.
 pub fn prove_cairo_cuda<MC: MerkleChannel>(
     input: ProverInput,
     prover_params: ProverParameters,
@@ -404,9 +394,7 @@ where
 
     // Protocol setup.
     let channel = &mut MC::C::default();
-    if channel_salt != 0 {
-        channel.mix_u64(channel_salt as u64);
-    }
+    channel.mix_felts(&[channel_salt.into()]);
     pcs_config.mix_into(channel);
     let mut commitment_scheme =
         CommitmentSchemeProver::<CudaBackend, MC>::new(pcs_config, &twiddles);
@@ -417,6 +405,7 @@ where
 
     // Preprocessed trace — generate on GPU.
     tracing::info!("[CUDA] Generating preprocessed trace");
+    let span = span!(Level::INFO, "Preprocessed trace (CUDA native)").entered();
     let preprocessed_trace = Arc::new(preprocessed_trace.to_preprocessed_trace());
     let evals =
         crate::witness::preprocessed_trace_cuda::gen_preprocessed_trace_cuda(&preprocessed_trace);
@@ -427,6 +416,7 @@ where
     tree_builder.extend_polys(polys);
     tree_builder.commit(channel);
     stwo::stwo_cuda::print_cuda_memory("[CUDA] After preprocessed commit");
+    span.exit();
 
     // Base trace — native CUDA generation (per-component GPU kernels, no SIMD bridge).
     tracing::info!("[CUDA] Generating base trace (native CUDA)");
@@ -436,8 +426,7 @@ where
     );
     let mut tree_builder = commitment_scheme.tree_builder();
     let span = span!(Level::INFO, "Base trace (CUDA native)").entered();
-    let (claim, interaction_generator) =
-        native_cuda_gen.write_trace(&mut tree_builder);
+    let (claim, interaction_generator) = native_cuda_gen.write_trace(&mut tree_builder);
     span.exit();
     stwo::stwo_cuda::print_cuda_memory("[CUDA] After base trace extend");
 
@@ -454,8 +443,8 @@ where
     tracing::info!("[CUDA] Generating interaction trace (native CUDA)");
     let mut tree_builder = commitment_scheme.tree_builder();
     let span = span!(Level::INFO, "Interaction trace (CUDA native)").entered();
-    let interaction_claim = interaction_generator
-        .write_interaction_trace(&mut tree_builder, &interaction_elements);
+    let interaction_claim =
+        interaction_generator.write_interaction_trace(&mut tree_builder, &interaction_elements);
     span.exit();
     stwo::stwo_cuda::print_cuda_memory("[CUDA] After interaction trace extend");
 
@@ -498,18 +487,12 @@ where
         component_builder
     );
 
-    let cuda_channel_salt = if channel_salt != 0 {
-        Some(channel_salt as u64)
-    } else {
-        None
-    };
-
     Ok(CairoProofCuda {
         claim,
         interaction_pow,
         interaction_claim,
         stark_proof: proof,
-        channel_salt: cuda_channel_salt,
+        channel_salt: Some(channel_salt as u64),
         preprocessed_trace_variant: prover_params.preprocessed_trace,
     })
 }
@@ -1193,22 +1176,43 @@ pub mod tests {
                 );
             }
         }
-
     }
 
     pub mod cuda_tests {
-        use cairo_air::verifier::verify_cairo_cuda;
-        use cairo_air::PreProcessedTraceVariant;
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+
+        use cairo_air::air::CairoComponents;
+        use cairo_air::claims::lookup_sum;
+        use cairo_air::relations::CommonLookupElements;
+        use cairo_air::verifier::{verify_cairo_ex, INTERACTION_POW_BITS};
+        use cairo_air::{CairoProof, CairoProofCuda, PreProcessedTraceVariant};
+        use num_traits::Zero;
+        use stwo::core::channel::{Channel, MerkleChannel};
+        use stwo::core::fields::qm31::SecureField;
         use stwo::core::fri::FriConfig;
         use stwo::core::pcs::PcsConfig;
+        use stwo::core::poly::circle::CanonicCoset;
+        use stwo::core::proof_of_work::GrindOps;
         use stwo::core::vcs::blake2_merkle::Blake2sMerkleChannel;
+        use stwo::prover::backend::cuda::CudaBackend;
+        use stwo::prover::backend::simd::SimdBackend;
+        use stwo::prover::poly::circle::PolyOps;
+        use stwo::prover::{prove, prove_ex, CommitmentSchemeProver};
         use stwo_cairo_adapter::ProverInput;
         use stwo_cairo_dev_utils::utils::get_compiled_cairo_program_path;
         use stwo_cairo_dev_utils::vm_utils::{run_and_adapt, ProgramType};
         use test_log::test;
 
         use crate::prover::{
-            prove_cairo_cuda, prove_cairo_cuda_v0, ChannelHash, ProverParameters,
+            prove_cairo, prove_cairo_cuda, prove_cairo_cuda_v0, ChannelHash, ProverParameters,
+            LOG_MAX_ROWS,
+        };
+        use crate::utils::cairo_provers;
+        use crate::witness::cairo::create_cairo_claim_generator;
+        use crate::witness::preprocessed_trace::gen_trace;
+        use crate::witness::preprocessed_trace_cuda::{
+            gen_preprocessed_trace_cuda, interpolate_columns_batched,
         };
 
         /// Load a CairoPie zip file and produce ProverInput via bootloader execution.
@@ -1245,9 +1249,8 @@ pub mod tests {
                 .parent()
                 .unwrap()
                 .join("proving-utils/crates/cairo-program-runner-lib/resources/compiled_programs/bootloaders/simple_bootloader_compiled.json");
-            let bootloader_program =
-                Program::from_file(bootloader_path.as_path(), Some("main"))
-                    .expect("Failed to load simple_bootloader_compiled.json");
+            let bootloader_program = Program::from_file(bootloader_path.as_path(), Some("main"))
+                .expect("Failed to load simple_bootloader_compiled.json");
 
             let cairo_run_config = RunMode::Proof {
                 layout: LayoutName::all_cairo_stwo,
@@ -1287,7 +1290,11 @@ pub mod tests {
             };
             let cairo_proof =
                 prove_cairo_cuda_v0::<Blake2sMerkleChannel>(input, prover_params).unwrap();
-            verify_cairo_cuda::<Blake2sMerkleChannel>(cairo_proof).unwrap();
+            verify_cairo_ex::<Blake2sMerkleChannel>(
+                cairo_proof.into(),
+                prover_params.include_all_preprocessed_columns,
+            )
+            .unwrap();
         }
 
         #[test]
@@ -1309,7 +1316,11 @@ pub mod tests {
             };
             let cairo_proof =
                 prove_cairo_cuda_v0::<Blake2sMerkleChannel>(input, prover_params).unwrap();
-            verify_cairo_cuda::<Blake2sMerkleChannel>(cairo_proof).unwrap();
+            verify_cairo_ex::<Blake2sMerkleChannel>(
+                cairo_proof.into(),
+                prover_params.include_all_preprocessed_columns,
+            )
+            .unwrap();
         }
 
         // --- Native CUDA path tests (per-component inline conversion) ---
@@ -1333,7 +1344,11 @@ pub mod tests {
             };
             let cairo_proof =
                 prove_cairo_cuda::<Blake2sMerkleChannel>(input, prover_params).unwrap();
-            verify_cairo_cuda::<Blake2sMerkleChannel>(cairo_proof).unwrap();
+            verify_cairo_ex::<Blake2sMerkleChannel>(
+                cairo_proof.into(),
+                prover_params.include_all_preprocessed_columns,
+            )
+            .unwrap();
         }
 
         #[test]
@@ -1355,7 +1370,11 @@ pub mod tests {
             };
             let cairo_proof =
                 prove_cairo_cuda::<Blake2sMerkleChannel>(input, prover_params).unwrap();
-            verify_cairo_cuda::<Blake2sMerkleChannel>(cairo_proof).unwrap();
+            verify_cairo_ex::<Blake2sMerkleChannel>(
+                cairo_proof.into(),
+                prover_params.include_all_preprocessed_columns,
+            )
+            .unwrap();
         }
 
         // ==================== PIE File Tests ====================
@@ -1367,9 +1386,295 @@ pub mod tests {
         }
 
         fn load_sn_pie_input() -> ProverInput {
-            let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../../test_data/sn_pie");
+            let path =
+                std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test_data/sn_pie");
             load_pie_input(&path)
+        }
+
+        #[derive(Clone, Copy, Debug)]
+        struct BenchmarkTimings {
+            setup: Duration,
+            preprocessed: Duration,
+            base: Duration,
+            interaction: Duration,
+            prove: Duration,
+            total: Duration,
+        }
+
+        impl BenchmarkTimings {
+            fn print_report(&self, label: &str) {
+                println!("\n{label} timings:");
+                println!("  setup:        {:8.3} ms", millis(self.setup));
+                println!("  preprocessed: {:8.3} ms", millis(self.preprocessed));
+                println!("  base trace:   {:8.3} ms", millis(self.base));
+                println!("  interaction:  {:8.3} ms", millis(self.interaction));
+                println!("  stark prove:  {:8.3} ms", millis(self.prove));
+                println!("  total:        {:8.3} ms", millis(self.total));
+            }
+        }
+
+        fn millis(duration: Duration) -> f64 {
+            duration.as_secs_f64() * 1000.0
+        }
+
+        fn small_pie_benchmark_params() -> ProverParameters {
+            ProverParameters {
+                channel_hash: ChannelHash::Blake2s,
+                pcs_config: PcsConfig {
+                    pow_bits: 26,
+                    fri_config: FriConfig::new(0, 1, 70, 1),
+                    lifting_log_size: None,
+                },
+                preprocessed_trace: PreProcessedTraceVariant::CanonicalSmall,
+                channel_salt: 0,
+                store_polynomials_coefficients: true,
+                include_all_preprocessed_columns: false,
+            }
+        }
+
+        fn print_speedups(simd: &BenchmarkTimings, cuda: &BenchmarkTimings) {
+            let rows = [
+                ("setup", simd.setup, cuda.setup),
+                ("preprocessed", simd.preprocessed, cuda.preprocessed),
+                ("base trace", simd.base, cuda.base),
+                ("interaction", simd.interaction, cuda.interaction),
+                ("stark prove", simd.prove, cuda.prove),
+                ("total", simd.total, cuda.total),
+            ];
+
+            println!("\nStage speedups (SIMD / CUDA warm):");
+            println!(
+                "  {:<14} {:>12} {:>12} {:>10}",
+                "stage", "SIMD ms", "CUDA ms", "speedup"
+            );
+            for (label, simd_dur, cuda_dur) in rows {
+                println!(
+                    "  {:<14} {:>12.3} {:>12.3} {:>9.2}x",
+                    label,
+                    millis(simd_dur),
+                    millis(cuda_dur),
+                    simd_dur.as_secs_f64() / cuda_dur.as_secs_f64()
+                );
+            }
+        }
+
+        fn simd_max_domain_size(prover_params: ProverParameters) -> u32 {
+            if let Some(lifting_log_size) = prover_params.pcs_config.lifting_log_size {
+                lifting_log_size
+            } else {
+                let cairo_air_log_degree_bound = 1;
+                LOG_MAX_ROWS
+                    + std::cmp::max(
+                        cairo_air_log_degree_bound,
+                        prover_params.pcs_config.fri_config.log_blowup_factor,
+                    )
+            }
+        }
+
+        fn run_small_pie_simd_benchmark() -> BenchmarkTimings {
+            type MC = Blake2sMerkleChannel;
+
+            let input = load_pie_10_transfers_input();
+            let prover_params = small_pie_benchmark_params();
+            let ProverParameters {
+                channel_hash: _,
+                channel_salt,
+                pcs_config,
+                preprocessed_trace,
+                store_polynomials_coefficients,
+                include_all_preprocessed_columns,
+            } = prover_params;
+
+            let total_timer = Instant::now();
+
+            let setup_timer = Instant::now();
+            let twiddles = SimdBackend::precompute_twiddles(
+                CanonicCoset::new(simd_max_domain_size(prover_params))
+                    .circle_domain()
+                    .half_coset,
+            );
+            let channel = &mut <MC as MerkleChannel>::C::default();
+            channel.mix_felts(&[channel_salt.into()]);
+            pcs_config.mix_into(channel);
+            let mut commitment_scheme =
+                CommitmentSchemeProver::<SimdBackend, MC>::new(pcs_config, &twiddles);
+            if store_polynomials_coefficients {
+                commitment_scheme.set_store_polynomials_coefficients();
+            }
+            let setup = setup_timer.elapsed();
+
+            let preprocessed_timer = Instant::now();
+            let preprocessed_trace = Arc::new(preprocessed_trace.to_preprocessed_trace());
+            let mut tree_builder = commitment_scheme.tree_builder();
+            tree_builder.extend_evals(gen_trace(preprocessed_trace.clone()));
+            tree_builder.commit(channel);
+            let preprocessed = preprocessed_timer.elapsed();
+
+            let base_timer = Instant::now();
+            let cairo_claim_generator =
+                create_cairo_claim_generator(input, preprocessed_trace.clone());
+            let mut tree_builder = commitment_scheme.tree_builder();
+            let (claim, interaction_generator) =
+                cairo_claim_generator.write_trace(&mut tree_builder);
+            claim.mix_into(channel);
+            tree_builder.commit(channel);
+            let base = base_timer.elapsed();
+
+            let interaction_timer = Instant::now();
+            let interaction_pow = SimdBackend::grind(channel, INTERACTION_POW_BITS);
+            channel.mix_u64(interaction_pow);
+            let interaction_elements = CommonLookupElements::draw(channel);
+            let mut tree_builder = commitment_scheme.tree_builder();
+            let interaction_claim = interaction_generator
+                .write_interaction_trace(&mut tree_builder, &interaction_elements);
+            assert_eq!(
+                lookup_sum(&claim, &interaction_elements, &interaction_claim),
+                SecureField::zero()
+            );
+            interaction_claim.mix_into(channel);
+            tree_builder.commit(channel);
+            let interaction = interaction_timer.elapsed();
+
+            let prove_timer = Instant::now();
+            let component_builder = CairoComponents::new(
+                &claim,
+                &interaction_elements,
+                &interaction_claim,
+                &preprocessed_trace.ids(),
+            );
+            let components = cairo_provers(&component_builder);
+            let proof = prove_ex::<SimdBackend, _>(
+                &components,
+                channel,
+                commitment_scheme,
+                include_all_preprocessed_columns,
+            )
+            .unwrap();
+            let prove = prove_timer.elapsed();
+            let total = total_timer.elapsed();
+
+            let cairo_proof = CairoProof {
+                claim,
+                interaction_pow,
+                interaction_claim,
+                extended_stark_proof: proof,
+                channel_salt,
+                preprocessed_trace_variant: prover_params.preprocessed_trace,
+            };
+            verify_cairo_ex::<MC>(cairo_proof.into(), include_all_preprocessed_columns).unwrap();
+
+            BenchmarkTimings {
+                setup,
+                preprocessed,
+                base,
+                interaction,
+                prove,
+                total,
+            }
+        }
+
+        fn run_small_pie_cuda_benchmark() -> BenchmarkTimings {
+            type MC = Blake2sMerkleChannel;
+
+            let input = load_pie_10_transfers_input();
+            let prover_params = small_pie_benchmark_params();
+            let ProverParameters {
+                channel_hash: _,
+                channel_salt,
+                pcs_config,
+                preprocessed_trace,
+                store_polynomials_coefficients,
+                include_all_preprocessed_columns: _,
+            } = prover_params;
+
+            let total_timer = Instant::now();
+
+            let setup_timer = Instant::now();
+            let twiddles = CudaBackend::precompute_twiddles(
+                CanonicCoset::new(simd_max_domain_size(prover_params))
+                    .circle_domain()
+                    .half_coset,
+            );
+            let channel = &mut <MC as MerkleChannel>::C::default();
+            channel.mix_felts(&[channel_salt.into()]);
+            pcs_config.mix_into(channel);
+            let mut commitment_scheme =
+                CommitmentSchemeProver::<CudaBackend, MC>::new(pcs_config, &twiddles);
+            if store_polynomials_coefficients {
+                commitment_scheme.set_store_polynomials_coefficients();
+            }
+            let setup = setup_timer.elapsed();
+
+            let preprocessed_timer = Instant::now();
+            let preprocessed_trace = Arc::new(preprocessed_trace.to_preprocessed_trace());
+            let evals = gen_preprocessed_trace_cuda(&preprocessed_trace);
+            let polys = interpolate_columns_batched(evals, &twiddles);
+            let mut tree_builder = commitment_scheme.tree_builder();
+            tree_builder.extend_polys(polys);
+            tree_builder.commit(channel);
+            let preprocessed = preprocessed_timer.elapsed();
+
+            let base_timer = Instant::now();
+            let native_cuda_gen =
+                crate::witness::cairo_cuda::create_native_cairo_cuda_claim_generator(
+                    input,
+                    preprocessed_trace.clone(),
+                );
+            let mut tree_builder = commitment_scheme.tree_builder();
+            let (claim, interaction_generator) = native_cuda_gen.write_trace(&mut tree_builder);
+            claim.mix_into(channel);
+            tree_builder.commit(channel);
+            let base = base_timer.elapsed();
+
+            let interaction_timer = Instant::now();
+            let interaction_pow = CudaBackend::grind(channel, INTERACTION_POW_BITS);
+            channel.mix_u64(interaction_pow);
+            let interaction_elements = CommonLookupElements::draw(channel);
+            let mut tree_builder = commitment_scheme.tree_builder();
+            let interaction_claim = interaction_generator
+                .write_interaction_trace(&mut tree_builder, &interaction_elements);
+            assert_eq!(
+                lookup_sum(&claim, &interaction_elements, &interaction_claim),
+                SecureField::zero()
+            );
+            interaction_claim.mix_into(channel);
+            tree_builder.commit(channel);
+            let interaction = interaction_timer.elapsed();
+
+            let prove_timer = Instant::now();
+            let component_builder = CairoComponents::new(
+                &claim,
+                &interaction_elements,
+                &interaction_claim,
+                &preprocessed_trace.ids(),
+            );
+            let components = component_builder.provers_cuda();
+            let proof = prove::<CudaBackend, _>(&components, channel, commitment_scheme).unwrap();
+            let prove = prove_timer.elapsed();
+            let total = total_timer.elapsed();
+
+            let cairo_proof = CairoProofCuda {
+                claim,
+                interaction_pow,
+                interaction_claim,
+                stark_proof: proof,
+                channel_salt: Some(channel_salt as u64),
+                preprocessed_trace_variant: prover_params.preprocessed_trace,
+            };
+            verify_cairo_ex::<MC>(
+                cairo_proof.into(),
+                prover_params.include_all_preprocessed_columns,
+            )
+            .unwrap();
+
+            BenchmarkTimings {
+                setup,
+                preprocessed,
+                base,
+                interaction,
+                prove,
+                total,
+            }
         }
 
         #[test]
@@ -1391,7 +1696,11 @@ pub mod tests {
             let cairo_proof =
                 prove_cairo_cuda::<Blake2sMerkleChannel>(input, prover_params).unwrap();
             println!("CUDA proof generation time: {:?}", timer.elapsed());
-            verify_cairo_cuda::<Blake2sMerkleChannel>(cairo_proof).unwrap();
+            verify_cairo_ex::<Blake2sMerkleChannel>(
+                cairo_proof.into(),
+                prover_params.include_all_preprocessed_columns,
+            )
+            .unwrap();
         }
 
         #[test]
@@ -1410,6 +1719,7 @@ pub mod tests {
                         fri_config: FriConfig::new(0, 1, 70, 1),
                         lifting_log_size: None,
                     },
+                    // pcs_config: PcsConfig::default(),
                     preprocessed_trace: PreProcessedTraceVariant::CanonicalSmall,
                     channel_salt: 0,
                     store_polynomials_coefficients: true,
@@ -1419,9 +1729,77 @@ pub mod tests {
                 let cairo_proof =
                     prove_cairo_cuda::<Blake2sMerkleChannel>(input, prover_params).unwrap();
                 let prove_time = timer.elapsed();
-                verify_cairo_cuda::<Blake2sMerkleChannel>(cairo_proof).unwrap();
+                verify_cairo_ex::<Blake2sMerkleChannel>(
+                    cairo_proof.into(),
+                    prover_params.include_all_preprocessed_columns,
+                )
+                .unwrap();
                 println!("No.{} CUDA proof generation time: {:?}", run, prove_time);
             }
+        }
+
+        #[test]
+        #[ignore = "manual SIMD baseline benchmark; run with --ignored"]
+        fn test_prove_verify_small_pie_simd_once() {
+            let input = load_pie_10_transfers_input();
+            let prover_params = small_pie_benchmark_params();
+            let timer = Instant::now();
+            let cairo_proof = prove_cairo::<Blake2sMerkleChannel>(input, prover_params).unwrap();
+            println!("SIMD proof generation time: {:?}", timer.elapsed());
+            verify_cairo_ex::<Blake2sMerkleChannel>(
+                cairo_proof.into(),
+                prover_params.include_all_preprocessed_columns,
+            )
+            .unwrap();
+        }
+
+        #[test]
+        fn test_prove_verify_small_pie_simd_multi() {
+            let loop_count: usize = std::env::var("PROVE_LOOP_COUNT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(20);
+            for run in 0..loop_count {
+                println!("\n========== RUN {} ==========\n", run);
+                let input = load_pie_10_transfers_input();
+                let prover_params = ProverParameters {
+                    channel_hash: ChannelHash::Blake2s,
+                    pcs_config: PcsConfig {
+                        pow_bits: 26,
+                        fri_config: FriConfig::new(0, 1, 70, 1),
+                        lifting_log_size: None,
+                    },
+                    // pcs_config: PcsConfig::default(),
+                    preprocessed_trace: PreProcessedTraceVariant::CanonicalSmall,
+                    channel_salt: 0,
+                    store_polynomials_coefficients: true,
+                    include_all_preprocessed_columns: false,
+                };
+                let time = std::time::Instant::now();
+                let cairo_proof =
+                    prove_cairo::<Blake2sMerkleChannel>(input, prover_params).unwrap();
+                let prove_time = time.elapsed();
+                verify_cairo_ex::<Blake2sMerkleChannel>(
+                    cairo_proof.into(),
+                    prover_params.include_all_preprocessed_columns,
+                )
+                .unwrap();
+                println!("No.{} SIMD proof generation time: {:?}", run, prove_time);
+            }
+        }
+        #[test]
+        #[ignore = "manual matched SIMD/CUDA stage benchmark; run with --ignored"]
+        fn test_benchmark_small_pie_simd_vs_cuda_stages() {
+            let simd = run_small_pie_simd_benchmark();
+            simd.print_report("SIMD");
+
+            let cuda_cold = run_small_pie_cuda_benchmark();
+            cuda_cold.print_report("CUDA cold");
+
+            let cuda_warm = run_small_pie_cuda_benchmark();
+            cuda_warm.print_report("CUDA warm");
+
+            print_speedups(&simd, &cuda_warm);
         }
 
         // ==================== sn_pie Tests (Large ~25M Steps) ====================
@@ -1452,7 +1830,11 @@ pub mod tests {
                     run,
                     timer.elapsed()
                 );
-                verify_cairo_cuda::<Blake2sMerkleChannel>(cairo_proof).unwrap();
+                verify_cairo_ex::<Blake2sMerkleChannel>(
+                    cairo_proof.into(),
+                    prover_params.include_all_preprocessed_columns,
+                )
+                .unwrap();
             }
         }
 
@@ -1478,7 +1860,6 @@ pub mod tests {
             use stwo::core::proof_of_work::GrindOps;
             use stwo::core::vcs::blake2_merkle::Blake2sMerkleChannel;
             use stwo::prover::backend::simd::SimdBackend;
-            use stwo::prover::backend::BackendForChannel;
             use stwo::prover::poly::circle::PolyOps;
             use stwo::prover::{prove_ex, CommitmentSchemeProver};
 
@@ -1633,8 +2014,8 @@ pub mod tests {
         }
 
         /// Same as sn_pie profiler but for pie_10_transfers.
-        /// Run: cargo test --release -p stwo-cairo-prover test_prove_verify_pie10_simd_mem_profile -- \
-        ///        --nocapture --test-threads=1 --ignored
+        /// Run: cargo test --release -p stwo-cairo-prover test_prove_verify_pie10_simd_mem_profile
+        /// -- \        --nocapture --test-threads=1 --ignored
         #[test]
         #[ignore = "pie_10_transfers SIMD memory profiling; run manually with --ignored"]
         fn test_prove_verify_pie10_simd_mem_profile() {
@@ -1653,7 +2034,6 @@ pub mod tests {
             use stwo::core::proof_of_work::GrindOps;
             use stwo::core::vcs::blake2_merkle::Blake2sMerkleChannel;
             use stwo::prover::backend::simd::SimdBackend;
-            use stwo::prover::backend::BackendForChannel;
             use stwo::prover::poly::circle::PolyOps;
             use stwo::prover::{prove_ex, CommitmentSchemeProver};
 
@@ -1821,10 +2201,7 @@ pub mod tests {
             use crate::witness::utils::witness_trace_cells;
 
             /// Load input, run write_trace to get CairoClaim, compute exact trace cells.
-            fn estimate_gpu_memory(
-                input: stwo_cairo_adapter::ProverInput,
-                label: &str,
-            ) -> f64 {
+            fn estimate_gpu_memory(input: stwo_cairo_adapter::ProverInput, label: &str) -> f64 {
                 let er = ExecutionResources::from_prover_input(&input);
 
                 // Print ExecutionResources summary
@@ -1854,24 +2231,36 @@ pub mod tests {
 
                 // Memory table sizes
                 eprintln!("\n--- Memory Table Sizes ---");
-                eprintln!("  memory_address_to_id: {:>12}", er.memory_tables_sizes.memory_address_to_id);
-                eprintln!("  memory_id_to_big:     {:>12}", er.memory_tables_sizes.memory_id_to_big);
-                eprintln!("  memory_id_to_small:   {:>12}", er.memory_tables_sizes.memory_id_to_small);
+                eprintln!(
+                    "  memory_address_to_id: {:>12}",
+                    er.memory_tables_sizes.memory_address_to_id
+                );
+                eprintln!(
+                    "  memory_id_to_big:     {:>12}",
+                    er.memory_tables_sizes.memory_id_to_big
+                );
+                eprintln!(
+                    "  memory_id_to_small:   {:>12}",
+                    er.memory_tables_sizes.memory_id_to_small
+                );
                 eprintln!("  verify_instruction:   {:>12}", er.verify_instruction);
 
                 // Derived sizes for GPU resident data
                 let big_count = er.memory_tables_sizes.memory_id_to_big;
                 let small_count = er.memory_tables_sizes.memory_id_to_small;
                 let big_size = std::cmp::max(big_count.next_multiple_of(16), 16);
-                let small_size = std::cmp::max(small_count.next_multiple_of(16), 16)
-                    .next_power_of_two();
+                let small_size =
+                    std::cmp::max(small_count.next_multiple_of(16), 16).next_power_of_two();
                 let mem_id_to_big_bytes = (9 * big_size * 4 + small_size * 20) as f64 / 1e9;
                 let addr_count = er.memory_tables_sizes.memory_address_to_id;
                 let mem_addr_to_id_bytes = (2 * addr_count.saturating_sub(1) * 4) as f64 / 1e9;
 
                 eprintln!("\n--- GPU Resident Data ---");
                 eprintln!("  mem_id_to_big constructor: {:.2} GB", mem_id_to_big_bytes);
-                eprintln!("  mem_addr_to_id data:       {:.2} GB", mem_addr_to_id_bytes);
+                eprintln!(
+                    "  mem_addr_to_id data:       {:.2} GB",
+                    mem_addr_to_id_bytes
+                );
                 eprintln!("  twiddles:                  0.26 GB");
 
                 // Run exact trace cell computation
@@ -1881,15 +2270,17 @@ pub mod tests {
                     create_cairo_claim_generator(input, preprocessed_trace.clone());
 
                 let pcs_config = PcsConfig::default();
-                let max_domain_size = LOG_MAX_ROWS
-                    + std::cmp::max(1, pcs_config.fri_config.log_blowup_factor);
+                let max_domain_size =
+                    LOG_MAX_ROWS + std::cmp::max(1, pcs_config.fri_config.log_blowup_factor);
                 let twiddles = SimdBackend::precompute_twiddles(
-                    CanonicCoset::new(max_domain_size).circle_domain().half_coset,
+                    CanonicCoset::new(max_domain_size)
+                        .circle_domain()
+                        .half_coset,
                 );
-                let mut commitment_scheme =
-                    CommitmentSchemeProver::<SimdBackend, Blake2sMerkleChannel>::new(
-                        pcs_config, &twiddles,
-                    );
+                let mut commitment_scheme = CommitmentSchemeProver::<
+                    SimdBackend,
+                    Blake2sMerkleChannel,
+                >::new(pcs_config, &twiddles);
                 let mut tree_builder = commitment_scheme.tree_builder();
                 let (claim, _) = cairo_claim_generator.write_trace(&mut tree_builder);
                 let cells = witness_trace_cells(&claim, &preprocessed_trace);
@@ -1900,14 +2291,26 @@ pub mod tests {
                 let total = preprocessed + base + interaction;
 
                 eprintln!("\n--- Exact Trace Cells ---");
-                eprintln!("  Preprocessed: {:>14} ({:>6.1} GB raw)",
-                    preprocessed, preprocessed as f64 * 4.0 / 1e9);
-                eprintln!("  Base trace:   {:>14} ({:>6.1} GB raw)",
-                    base, base as f64 * 4.0 / 1e9);
-                eprintln!("  Interaction:  {:>14} ({:>6.1} GB raw)",
-                    interaction, interaction as f64 * 4.0 / 1e9);
-                eprintln!("  Total:        {:>14} ({:>6.1} GB raw)",
-                    total, total as f64 * 4.0 / 1e9);
+                eprintln!(
+                    "  Preprocessed: {:>14} ({:>6.1} GB raw)",
+                    preprocessed,
+                    preprocessed as f64 * 4.0 / 1e9
+                );
+                eprintln!(
+                    "  Base trace:   {:>14} ({:>6.1} GB raw)",
+                    base,
+                    base as f64 * 4.0 / 1e9
+                );
+                eprintln!(
+                    "  Interaction:  {:>14} ({:>6.1} GB raw)",
+                    interaction,
+                    interaction as f64 * 4.0 / 1e9
+                );
+                eprintln!(
+                    "  Total:        {:>14} ({:>6.1} GB raw)",
+                    total,
+                    total as f64 * 4.0 / 1e9
+                );
 
                 // GPU peak estimation (calibrated from SIMD HWM / raw_data):
                 //   Large workloads (>1B cells): 3.1× (sn_pie: 96.8 GB / 31.3 GB)
@@ -1951,12 +2354,22 @@ pub mod tests {
             eprintln!("{}", "=".repeat(80));
             eprintln!("{:<30} {:>18} {:>18}", "", "pie_10_transfers", "sn_pie");
             eprintln!("{}", "-".repeat(70));
-            eprintln!("{:<30} {:>18} {:>18}", "Estimated peak (GB)",
-                format!("{:.1}", pie10_peak), format!("{:.1}", snpie_peak));
-            eprintln!("{:<30} {:>18} {:>18}", "Measured SIMD HWM (GB)",
-                "23.9", "96.8");
-            eprintln!("{:<30} {:>18} {:>18}", "Estimate/Measured",
-                format!("{:.2}", pie10_peak / 23.9), format!("{:.2}", snpie_peak / 96.8));
+            eprintln!(
+                "{:<30} {:>18} {:>18}",
+                "Estimated peak (GB)",
+                format!("{:.1}", pie10_peak),
+                format!("{:.1}", snpie_peak)
+            );
+            eprintln!(
+                "{:<30} {:>18} {:>18}",
+                "Measured SIMD HWM (GB)", "23.9", "96.8"
+            );
+            eprintln!(
+                "{:<30} {:>18} {:>18}",
+                "Estimate/Measured",
+                format!("{:.2}", pie10_peak / 23.9),
+                format!("{:.2}", snpie_peak / 96.8)
+            );
         }
     }
 }

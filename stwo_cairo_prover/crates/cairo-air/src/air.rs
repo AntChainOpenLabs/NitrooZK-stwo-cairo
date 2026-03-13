@@ -841,6 +841,28 @@ impl<H: MerkleHasher> From<CairoProof<H>> for CairoProofForRustVerifier<H> {
     }
 }
 
+impl<H: MerkleHasher> From<CairoProofCuda<H>> for CairoProofForRustVerifier<H> {
+    fn from(cuda_cairo_proof: CairoProofCuda<H>) -> Self {
+        let CairoProofCuda {
+            claim,
+            interaction_pow,
+            interaction_claim,
+            stark_proof,
+            channel_salt,
+            preprocessed_trace_variant,
+        } = cuda_cairo_proof;
+
+        Self {
+            claim,
+            interaction_pow,
+            interaction_claim,
+            stark_proof,
+            channel_salt: channel_salt.unwrap_or_default() as u32,
+            preprocessed_trace_variant,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
