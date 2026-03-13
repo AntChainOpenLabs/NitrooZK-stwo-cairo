@@ -1,14 +1,17 @@
-// Native CUDA witness generation for pedersen_builtin component (3 columns).
+// Native CUDA witness generation for poseidon_builtin (split, 6 columns).
 //
-// Uses GPU-resident address_to_raw_id table for memory ID lookups. No EC math
-// (delegated to pedersen_aggregator).
+// This is the "split" poseidon_builtin kernel for v1.1.0's split AIR.
+// Only generates the 6 builtin-level columns (memory ID lookups).
+// Poseidon Hades permutation is delegated to poseidon_aggregator.
 //
-// Base trace: 3 columns (input_state_0_id, input_state_1_id, output_state_id)
-// Lookup data: 3× memory_address_to_id (3 elems each) + 1× pedersen_agg (4 elems)
-// Sub-component inputs: 3 memory_address_to_id feeds + 1 pedersen_aggregator feed
-// Interaction trace: 2 logup columns (8 M31 columns)
+// SIMD reference: components/poseidon_builtin.rs (303 lines)
+//
+// Base trace: 6 columns (input_state_0/1/2_id, output_state_0/1/2_id)
+// Lookup data: 6x memory_address_to_id (3 elems each) + 1x poseidon_agg (7 elems)
+// Sub-component inputs: 6 memory_address_to_id feeds + 1 poseidon_aggregator feed
+// Interaction trace: 4 logup columns (16 M31 columns)
 
-use cairo_air::components::pedersen_builtin::{Claim, InteractionClaim};
+use cairo_air::components::poseidon_builtin::{Claim, InteractionClaim};
 use cairo_air::relations::CommonLookupElements;
 use stwo::core::fields::m31::M31;
 use stwo::core::fields::qm31::SecureField;
@@ -20,7 +23,7 @@ use stwo::stwo_cuda::base_field_vec::BaseFieldVec;
 use stwo::stwo_cuda::bindings_airs;
 
 use super::super::memory_address_to_id_cuda;
-use crate::witness::prelude::*;
+use crate::witness::utils::TreeBuilder;
 
 pub struct CudaClaimGenerator {
     pub log_size: u32,
@@ -35,38 +38,44 @@ impl CudaClaimGenerator {
         }
     }
 
-    /// Write the pedersen_builtin trace (3 columns) using native CUDA kernel.
+    /// Write the poseidon_builtin trace (6 columns) using native CUDA kernel.
     ///
     /// Routes sub-component inputs:
-    /// - memory_address_to_id → CUDA state (GPU-native multiplicity tracking)
-    /// - pedersen_aggregator → returns 3 GPU ID arrays for direct GPU transfer
+    /// - memory_address_to_id -> CUDA state (GPU-native multiplicity tracking)
+    /// - poseidon_aggregator -> returns 6 GPU ID arrays for direct GPU-to-GPU passing
     pub fn write_trace(
         self,
         tree_builder: &mut impl TreeBuilder<CudaBackend>,
         memory_address_to_id_cuda_state: &mut memory_address_to_id_cuda::CudaClaimGenerator,
-    ) -> (Claim, CudaInteractionClaimGenerator, [BaseFieldVec; 3]) {
+    ) -> (Claim, CudaInteractionClaimGenerator, [BaseFieldVec; 6]) {
         let log_size = self.log_size;
         let n_rows = 1u32 << log_size;
         let trace_size = n_rows as usize;
 
-        // Allocate GPU columns for 3 trace columns.
-        let trace_cols: [BaseFieldVec; 3] =
+        // Allocate GPU columns for 6 trace columns.
+        let trace_cols: [BaseFieldVec; 6] =
             std::array::from_fn(|_| BaseFieldVec::new_uninitialized(trace_size));
 
-        // Allocate GPU arrays for lookup data (3×3 + 1×4 = 13 arrays).
+        // Allocate GPU arrays for lookup data (6x3 + 1x7 = 25 arrays).
         let lk_mem_0: [BaseFieldVec; 3] =
             std::array::from_fn(|_| BaseFieldVec::new_uninitialized(trace_size));
         let lk_mem_1: [BaseFieldVec; 3] =
             std::array::from_fn(|_| BaseFieldVec::new_uninitialized(trace_size));
         let lk_mem_2: [BaseFieldVec; 3] =
             std::array::from_fn(|_| BaseFieldVec::new_uninitialized(trace_size));
-        let lk_agg_0: [BaseFieldVec; 4] =
+        let lk_mem_3: [BaseFieldVec; 3] =
+            std::array::from_fn(|_| BaseFieldVec::new_uninitialized(trace_size));
+        let lk_mem_4: [BaseFieldVec; 3] =
+            std::array::from_fn(|_| BaseFieldVec::new_uninitialized(trace_size));
+        let lk_mem_5: [BaseFieldVec; 3] =
+            std::array::from_fn(|_| BaseFieldVec::new_uninitialized(trace_size));
+        let lk_agg_0: [BaseFieldVec; 7] =
             std::array::from_fn(|_| BaseFieldVec::new_uninitialized(trace_size));
 
-        // Allocate GPU arrays for sub-component inputs (3 + 3 = 6 arrays).
-        let sub_mem: [BaseFieldVec; 3] =
+        // Allocate GPU arrays for sub-component inputs (6 + 6 = 12 arrays).
+        let sub_mem: [BaseFieldVec; 6] =
             std::array::from_fn(|_| BaseFieldVec::new_uninitialized(trace_size));
-        let sub_agg: [BaseFieldVec; 3] =
+        let sub_agg: [BaseFieldVec; 6] =
             std::array::from_fn(|_| BaseFieldVec::new_uninitialized(trace_size));
 
         // Collect device pointers.
@@ -74,17 +83,23 @@ impl CudaClaimGenerator {
         let lk_mem_0_ptrs: Vec<*const u32> = lk_mem_0.iter().map(|c| c.device_ptr).collect();
         let lk_mem_1_ptrs: Vec<*const u32> = lk_mem_1.iter().map(|c| c.device_ptr).collect();
         let lk_mem_2_ptrs: Vec<*const u32> = lk_mem_2.iter().map(|c| c.device_ptr).collect();
+        let lk_mem_3_ptrs: Vec<*const u32> = lk_mem_3.iter().map(|c| c.device_ptr).collect();
+        let lk_mem_4_ptrs: Vec<*const u32> = lk_mem_4.iter().map(|c| c.device_ptr).collect();
+        let lk_mem_5_ptrs: Vec<*const u32> = lk_mem_5.iter().map(|c| c.device_ptr).collect();
         let lk_agg_0_ptrs: Vec<*const u32> = lk_agg_0.iter().map(|c| c.device_ptr).collect();
         let sub_mem_ptrs: Vec<*const u32> = sub_mem.iter().map(|c| c.device_ptr).collect();
         let sub_agg_ptrs: Vec<*const u32> = sub_agg.iter().map(|c| c.device_ptr).collect();
 
         // Call the CUDA kernel.
         unsafe {
-            bindings_airs::gen_pedersen_builtin_trace(
+            bindings_airs::gen_poseidon_builtin_split_trace(
                 traces_ptrs.as_ptr(),
                 lk_mem_0_ptrs.as_ptr(),
                 lk_mem_1_ptrs.as_ptr(),
                 lk_mem_2_ptrs.as_ptr(),
+                lk_mem_3_ptrs.as_ptr(),
+                lk_mem_4_ptrs.as_ptr(),
+                lk_mem_5_ptrs.as_ptr(),
                 lk_agg_0_ptrs.as_ptr(),
                 sub_mem_ptrs.as_ptr(),
                 sub_agg_ptrs.as_ptr(),
@@ -95,7 +110,7 @@ impl CudaClaimGenerator {
             );
         }
 
-        // Route sub-component inputs: memory_address_to_id → CUDA state.
+        // Route sub-component inputs: memory_address_to_id -> CUDA state.
         let mem_inputs: Vec<memory_address_to_id_cuda::CudaPackedInputType> =
             sub_mem.into_iter().map(|v| [v]).collect();
         memory_address_to_id_cuda_state.add_cuda_inputs(&mem_inputs);
@@ -111,7 +126,7 @@ impl CudaClaimGenerator {
         (
             Claim {
                 log_size,
-                pedersen_builtin_segment_start: self.segment_start,
+                poseidon_builtin_segment_start: self.segment_start,
             },
             CudaInteractionClaimGenerator {
                 log_size,
@@ -119,6 +134,9 @@ impl CudaClaimGenerator {
                     lk_mem_0,
                     lk_mem_1,
                     lk_mem_2,
+                    lk_mem_3,
+                    lk_mem_4,
+                    lk_mem_5,
                     lk_agg_0,
                 },
             },
@@ -131,7 +149,10 @@ struct CudaLookupData {
     lk_mem_0: [BaseFieldVec; 3],
     lk_mem_1: [BaseFieldVec; 3],
     lk_mem_2: [BaseFieldVec; 3],
-    lk_agg_0: [BaseFieldVec; 4],
+    lk_mem_3: [BaseFieldVec; 3],
+    lk_mem_4: [BaseFieldVec; 3],
+    lk_mem_5: [BaseFieldVec; 3],
+    lk_agg_0: [BaseFieldVec; 7],
 }
 
 pub struct CudaInteractionClaimGenerator {
@@ -147,7 +168,7 @@ impl CudaInteractionClaimGenerator {
     ) -> InteractionClaim {
         let log_size = self.log_size;
         let trace_size = 1usize << log_size;
-        let n_interaction_columns = 4 * 2; // 2 logup columns × 4 M31 each
+        let n_interaction_columns = 4 * 4; // 4 logup columns x 4 M31 each
 
         // Allocate GPU columns for interaction trace.
         let interaction_trace: Vec<BaseFieldVec> = (0..n_interaction_columns)
@@ -178,6 +199,24 @@ impl CudaInteractionClaimGenerator {
             .iter()
             .map(|c| c.device_ptr)
             .collect();
+        let lk_mem_3_ptrs: Vec<*const u32> = self
+            .lookup_data
+            .lk_mem_3
+            .iter()
+            .map(|c| c.device_ptr)
+            .collect();
+        let lk_mem_4_ptrs: Vec<*const u32> = self
+            .lookup_data
+            .lk_mem_4
+            .iter()
+            .map(|c| c.device_ptr)
+            .collect();
+        let lk_mem_5_ptrs: Vec<*const u32> = self
+            .lookup_data
+            .lk_mem_5
+            .iter()
+            .map(|c| c.device_ptr)
+            .collect();
         let lk_agg_0_ptrs: Vec<*const u32> = self
             .lookup_data
             .lk_agg_0
@@ -186,11 +225,14 @@ impl CudaInteractionClaimGenerator {
             .collect();
 
         unsafe {
-            bindings_airs::gen_pedersen_builtin_interaction_trace(
+            bindings_airs::gen_poseidon_builtin_split_interaction_trace(
                 lookup_elements as *const CommonLookupElements as *mut std::os::raw::c_void,
                 lk_mem_0_ptrs.as_ptr(),
                 lk_mem_1_ptrs.as_ptr(),
                 lk_mem_2_ptrs.as_ptr(),
+                lk_mem_3_ptrs.as_ptr(),
+                lk_mem_4_ptrs.as_ptr(),
+                lk_mem_5_ptrs.as_ptr(),
                 lk_agg_0_ptrs.as_ptr(),
                 log_size,
                 interaction_trace_ptrs.as_ptr(),

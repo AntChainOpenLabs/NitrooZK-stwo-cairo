@@ -53,6 +53,7 @@ pub mod pedersen_points_table_wb9_cuda;
 pub mod pedersen_wb9_cuda;
 pub mod poseidon_3_partial_rounds_chain_cuda;
 pub mod poseidon_aggregator_cuda;
+pub mod poseidon_aggregator_native_cuda;
 pub mod poseidon_cuda;
 pub mod poseidon_full_round_chain_cuda;
 pub mod range_check_252_width_27_cuda;

@@ -29,6 +29,12 @@ use crate::witness::components_cuda::{
 use crate::witness::range_checks_cuda::RangeChecksCudaClaimGenerator;
 use crate::witness::utils::TreeBuilder;
 
+// CUDA-COVERAGE: poseidon_aggregator — SIMD hybrid path.
+// Internally holds simd_aggregator (poseidon_aggregator_witness::ClaimGenerator).
+// Runs SIMD write_trace() → converts 342-col trace to CUDA inline →
+// merges multiplicities into CUDA for downstream chain components.
+// Depends on poseidon_builtin also being SIMD (feeds SIMD aggregator inputs).
+
 /// Encapsulated CUDA wrapper around the SIMD poseidon_aggregator.
 ///
 /// Hides all SIMD internals. The orchestration layer only sees a CUDA-native API.

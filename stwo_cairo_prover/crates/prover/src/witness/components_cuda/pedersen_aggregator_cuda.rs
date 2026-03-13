@@ -66,34 +66,50 @@ fn init_lookup_vec(count: usize, log_size: u32) -> Vec<BaseFieldVec> {
 
 /// Native CUDA claim generator for pedersen_aggregator.
 ///
-/// Holds the SIMD aggregator generator internally for input collection (DashMap).
-/// On write_trace(), sorts + packs inputs on CPU, uploads to GPU, and calls
-/// the native CUDA kernel.
+/// Supports two modes:
+/// - `from_gpu_ids`: Direct GPU path — takes 3 ID arrays already on GPU (from pedersen_builtin).
+///   All rows have multiplicity 1. No DashMap, no CPU sort.
+/// - Legacy DashMap path (via `new` + `inner`): sorts + packs inputs on CPU, uploads to GPU.
 pub struct CudaClaimGenerator {
-    inner: pedersen_aggregator_window_bits_18::ClaimGenerator,
+    inner: Option<pedersen_aggregator_window_bits_18::ClaimGenerator>,
+    /// Direct GPU path: 3 ID arrays + log_size
+    gpu_ids: Option<([BaseFieldVec; 3], u32)>,
 }
 
 impl CudaClaimGenerator {
     pub fn new() -> Self {
         Self {
-            inner: pedersen_aggregator_window_bits_18::ClaimGenerator::new(),
+            inner: Some(pedersen_aggregator_window_bits_18::ClaimGenerator::new()),
+            gpu_ids: None,
+        }
+    }
+
+    /// Create from GPU ID arrays produced by pedersen_builtin.
+    /// All rows get multiplicity 1 — no DashMap needed.
+    pub fn from_gpu_ids(gpu_ids: [BaseFieldVec; 3], log_size: u32) -> Self {
+        Self {
+            inner: None,
+            gpu_ids: Some((gpu_ids, log_size)),
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
+        if let Some(ref inner) = self.inner {
+            inner.is_empty()
+        } else {
+            self.gpu_ids.is_none()
+        }
     }
 
     /// Delegate input tracking to the inner SIMD generator.
+    /// Only valid for the legacy DashMap path.
     pub fn inner(&self) -> &pedersen_aggregator_window_bits_18::ClaimGenerator {
-        &self.inner
+        self.inner
+            .as_ref()
+            .expect("inner() called on from_gpu_ids CudaClaimGenerator")
     }
 
     /// Write the aggregator trace (206 columns) to a CUDA tree builder.
-    ///
-    /// Sorts + packs inputs on CPU, uploads to GPU, calls the native CUDA kernel.
-    /// Sub-component inputs are written by the kernel into GPU arrays and fed directly
-    /// to their respective CUDA generators.
     pub fn write_trace(
         self,
         cuda_tree_builder: &mut impl TreeBuilder<CudaBackend>,
@@ -101,49 +117,65 @@ impl CudaClaimGenerator {
         rc_8_state: &rc_8::CudaClaimGenerator,
         pem_cuda: &mut partial_ec_mul_cuda::CudaClaimGenerator,
     ) -> (Claim, CudaInteractionClaimGenerator) {
-        // 1. Sort + pack inputs on CPU (same as SIMD path).
-        let mut inputs_mults = self
-            .inner
-            .mults
-            .iter()
-            .map(|entry| {
-                (
-                    *entry.key(),
-                    M31(entry.value().load(std::sync::atomic::Ordering::Relaxed)),
-                )
-            })
-            .collect::<Vec<_>>();
-        inputs_mults.sort_by_key(|(input, _)| input.0);
-        let (mut inputs, mut mults) = inputs_mults.into_iter().unzip::<_, _, Vec<_>, Vec<_>>();
+        // Determine input columns and mults based on path
+        let (input_cols, mults_gpu, n_rows, log_size) = if let Some((gpu_ids, log_size)) =
+            self.gpu_ids
+        {
+            // Direct GPU path: IDs already on GPU, all mults = 1
+            let size = 1usize << log_size;
+            let mults_gpu = BaseFieldVec::from_vec(vec![M31(1); size]);
+            (gpu_ids, mults_gpu, size, log_size)
+        } else {
+            // Legacy DashMap path
+            let inner = self
+                .inner
+                .expect("CudaClaimGenerator: neither gpu_ids nor inner set");
+            let mut inputs_mults = inner
+                .mults
+                .iter()
+                .map(|entry| {
+                    (
+                        *entry.key(),
+                        M31(entry.value().load(std::sync::atomic::Ordering::Relaxed)),
+                    )
+                })
+                .collect::<Vec<_>>();
+            inputs_mults.sort_by_key(|(input, _)| input.0);
+            let (mut inputs, mut mults) =
+                inputs_mults.into_iter().unzip::<_, _, Vec<_>, Vec<_>>();
 
-        let n_rows = inputs.len();
-        assert_ne!(
-            n_rows, 0,
-            "pedersen_aggregator_cuda: write_trace called with 0 inputs"
-        );
-        let size = std::cmp::max(n_rows.next_power_of_two(), N_LANES);
-        let log_size = size.ilog2();
-        inputs.resize(size, *inputs.first().unwrap());
-        mults.resize(size, M31::zero());
+            let n_rows = inputs.len();
+            assert_ne!(
+                n_rows, 0,
+                "pedersen_aggregator_cuda: write_trace called with 0 inputs"
+            );
+            let size = std::cmp::max(n_rows.next_power_of_two(), N_LANES);
+            let log_size = size.ilog2();
+            inputs.resize(size, *inputs.first().unwrap());
+            mults.resize(size, M31::zero());
 
-        // 2. Upload inputs to GPU as 3 BaseFieldVec columns.
-        let mut input_col_0 = Vec::with_capacity(size);
-        let mut input_col_1 = Vec::with_capacity(size);
-        let mut input_col_2 = Vec::with_capacity(size);
-        let mut mults_vec = Vec::with_capacity(size);
-        for (input, mult) in inputs.iter().zip(mults.iter()) {
-            let ([limb0, limb1], limb2) = input;
-            input_col_0.push(*limb0);
-            input_col_1.push(*limb1);
-            input_col_2.push(*limb2);
-            mults_vec.push(*mult);
-        }
-        let input_cols = [
-            BaseFieldVec::from_vec(input_col_0),
-            BaseFieldVec::from_vec(input_col_1),
-            BaseFieldVec::from_vec(input_col_2),
-        ];
-        let mults_gpu = BaseFieldVec::from_vec(mults_vec);
+            let mut input_col_0 = Vec::with_capacity(size);
+            let mut input_col_1 = Vec::with_capacity(size);
+            let mut input_col_2 = Vec::with_capacity(size);
+            let mut mults_vec = Vec::with_capacity(size);
+            for (input, mult) in inputs.iter().zip(mults.iter()) {
+                let ([limb0, limb1], limb2) = input;
+                input_col_0.push(*limb0);
+                input_col_1.push(*limb1);
+                input_col_2.push(*limb2);
+                mults_vec.push(*mult);
+            }
+            (
+                [
+                    BaseFieldVec::from_vec(input_col_0),
+                    BaseFieldVec::from_vec(input_col_1),
+                    BaseFieldVec::from_vec(input_col_2),
+                ],
+                BaseFieldVec::from_vec(mults_vec),
+                n_rows,
+                log_size,
+            )
+        };
 
         // 3. Call the CUDA kernel.
         let (trace, lookup_data, sub_component_inputs) = write_trace_cuda(
@@ -171,7 +203,7 @@ impl CudaClaimGenerator {
         // PEM expects [BaseFieldVec; 72] where each vec has total_rows elements.
         // The kernel packed 28 rounds × size rows into each column,
         // so total_rows = 28 * size.
-        let pem_total_rows = 28 * size;
+        let pem_total_rows = 28 * (1usize << log_size);
         let pem_inputs: [BaseFieldVec; 72] = sub_component_inputs
             .pem
             .try_into()

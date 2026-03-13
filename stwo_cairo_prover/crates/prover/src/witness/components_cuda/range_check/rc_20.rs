@@ -2,7 +2,6 @@ use cairo_air::components::range_check_20::{Claim, InteractionClaim};
 use cairo_air::relations::CommonLookupElements;
 use stwo::core::fields::m31::M31;
 use stwo::prover::backend::cuda::CudaBackend;
-use stwo::prover::backend::Column;
 use stwo::stwo_cuda::base_field_vec::BaseFieldVec;
 
 use super::base::{CudaMultiRelationInteractionGen, CudaMultiRelationRangeCheckGenerator};
@@ -44,9 +43,9 @@ impl CudaClaimGenerator {
         }
     }
 
-    /// Adds inputs for a specific relation with an offset correction applied on CPU.
+    /// Adds inputs for a specific relation with an offset correction applied on GPU.
     ///
-    /// Downloads GPU data, applies `offset` to each value, re-uploads, then calls
+    /// Applies `offset` to each value in-place on GPU, then calls
     /// `add_inputs_for_relation`. Used by mul_opcode and generic_opcode which store
     /// range_check_19 values with a different base offset than range_check_20 expects.
     pub fn add_cuda_inputs_for_relation_with_offset(
@@ -56,12 +55,11 @@ impl CudaClaimGenerator {
         offset: M31,
     ) {
         for input in cuda_inputs {
-            let cpu_vals: Vec<M31> = input[0].to_cpu();
-            let corrected: Vec<M31> = cpu_vals.into_iter().map(|v| v + offset).collect();
-            let corrected_gpu = BaseFieldVec::from_vec(corrected);
-            let n_rows = corrected_gpu.size;
+            let mut corrected = input[0].clone();
+            corrected.add_offset_in_place(offset);
+            let n_rows = corrected.size;
             self.0
-                .add_inputs_for_relation(&[corrected_gpu], n_rows, relation_index);
+                .add_inputs_for_relation(&[corrected], n_rows, relation_index);
         }
     }
 

@@ -1,14 +1,16 @@
-// Native CUDA witness generation for pedersen_builtin component (3 columns).
+// Native CUDA witness generation for pedersen_builtin_narrow_windows (3 columns).
 //
-// Uses GPU-resident address_to_raw_id table for memory ID lookups. No EC math
-// (delegated to pedersen_aggregator).
+// Narrow variant (window_bits_9). Identical structure to the wide variant
+// (pedersen_builtin_cuda.rs) — only the aggregator type differs:
+//   Wide:   pedersen_aggregator_window_bits_18 (relation_id = 520578465)
+//   Narrow: pedersen_aggregator_window_bits_9  (relation_id = 194336987)
 //
 // Base trace: 3 columns (input_state_0_id, input_state_1_id, output_state_id)
-// Lookup data: 3× memory_address_to_id (3 elems each) + 1× pedersen_agg (4 elems)
+// Lookup data: 3x memory_address_to_id (3 elems each) + 1x pedersen_agg (4 elems)
 // Sub-component inputs: 3 memory_address_to_id feeds + 1 pedersen_aggregator feed
 // Interaction trace: 2 logup columns (8 M31 columns)
 
-use cairo_air::components::pedersen_builtin::{Claim, InteractionClaim};
+use cairo_air::components::pedersen_builtin_narrow_windows::{Claim, InteractionClaim};
 use cairo_air::relations::CommonLookupElements;
 use stwo::core::fields::m31::M31;
 use stwo::core::fields::qm31::SecureField;
@@ -35,10 +37,10 @@ impl CudaClaimGenerator {
         }
     }
 
-    /// Write the pedersen_builtin trace (3 columns) using native CUDA kernel.
+    /// Write the pedersen_builtin_narrow_windows trace (3 columns) using native CUDA kernel.
     ///
     /// Routes sub-component inputs:
-    /// - memory_address_to_id → CUDA state (GPU-native multiplicity tracking)
+    /// - memory_address_to_id -> CUDA state (GPU-native multiplicity tracking)
     /// - pedersen_aggregator → returns 3 GPU ID arrays for direct GPU transfer
     pub fn write_trace(
         self,
@@ -53,7 +55,7 @@ impl CudaClaimGenerator {
         let trace_cols: [BaseFieldVec; 3] =
             std::array::from_fn(|_| BaseFieldVec::new_uninitialized(trace_size));
 
-        // Allocate GPU arrays for lookup data (3×3 + 1×4 = 13 arrays).
+        // Allocate GPU arrays for lookup data (3x3 + 1x4 = 13 arrays).
         let lk_mem_0: [BaseFieldVec; 3] =
             std::array::from_fn(|_| BaseFieldVec::new_uninitialized(trace_size));
         let lk_mem_1: [BaseFieldVec; 3] =
@@ -80,7 +82,7 @@ impl CudaClaimGenerator {
 
         // Call the CUDA kernel.
         unsafe {
-            bindings_airs::gen_pedersen_builtin_trace(
+            bindings_airs::gen_pedersen_builtin_narrow_trace(
                 traces_ptrs.as_ptr(),
                 lk_mem_0_ptrs.as_ptr(),
                 lk_mem_1_ptrs.as_ptr(),
@@ -95,7 +97,7 @@ impl CudaClaimGenerator {
             );
         }
 
-        // Route sub-component inputs: memory_address_to_id → CUDA state.
+        // Route sub-component inputs: memory_address_to_id -> CUDA state.
         let mem_inputs: Vec<memory_address_to_id_cuda::CudaPackedInputType> =
             sub_mem.into_iter().map(|v| [v]).collect();
         memory_address_to_id_cuda_state.add_cuda_inputs(&mem_inputs);
@@ -147,7 +149,7 @@ impl CudaInteractionClaimGenerator {
     ) -> InteractionClaim {
         let log_size = self.log_size;
         let trace_size = 1usize << log_size;
-        let n_interaction_columns = 4 * 2; // 2 logup columns × 4 M31 each
+        let n_interaction_columns = 4 * 2; // 2 logup columns x 4 M31 each
 
         // Allocate GPU columns for interaction trace.
         let interaction_trace: Vec<BaseFieldVec> = (0..n_interaction_columns)
@@ -186,7 +188,7 @@ impl CudaInteractionClaimGenerator {
             .collect();
 
         unsafe {
-            bindings_airs::gen_pedersen_builtin_interaction_trace(
+            bindings_airs::gen_pedersen_builtin_narrow_interaction_trace(
                 lookup_elements as *const CommonLookupElements as *mut std::os::raw::c_void,
                 lk_mem_0_ptrs.as_ptr(),
                 lk_mem_1_ptrs.as_ptr(),

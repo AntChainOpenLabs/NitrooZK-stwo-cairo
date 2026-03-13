@@ -6,6 +6,9 @@
 //! - cube_252 runs via **CUDA** (trace + interaction trace)
 //! - poseidon_round_keys runs via SIMD (static table, 64 rows)
 //! - range_check_252_width_27 runs via **CUDA** (trace + interaction trace)
+//!
+// CUDA-COVERAGE: poseidon_round_keys — pure SIMD (static lookup table, 64 rows).
+// Not worth migrating to CUDA: zero parallelism benefit, runs via SimdToCudaBridge.
 
 use cairo_air::components::{
     cube_252, poseidon_3_partial_rounds_chain, poseidon_full_round_chain, poseidon_round_keys,

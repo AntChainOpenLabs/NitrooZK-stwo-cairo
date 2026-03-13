@@ -120,13 +120,8 @@ impl CudaClaimGenerator {
 
         // Normalize range_check_19_h_0 offset: CUDA kernel stores k_col+262144,
         // subtract 131072 to make uniform base offset of 131072 (like all other carries).
-        {
-            let mut h0_vals: Vec<M31> = lookup_data.range_check_19_h_0[0].to_vec();
-            for v in &mut h0_vals {
-                *v = *v - M31(131072);
-            }
-            lookup_data.range_check_19_h_0[0] = BaseFieldVec::from_vec(h0_vals);
-        }
+        // In M31: -131072 ≡ P - 131072 = 2147352575.
+        lookup_data.range_check_19_h_0[0].add_offset_in_place(M31(2147483647 - 131072));
 
         // Add to CUDA generators for multiplicity accumulation
         verify_instruction_cuda_state.add_cuda_inputs(&sub_component_inputs.verify_instruction);

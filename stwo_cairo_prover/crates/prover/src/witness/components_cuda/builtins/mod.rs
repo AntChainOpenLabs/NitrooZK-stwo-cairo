@@ -2,6 +2,8 @@ pub mod add_mod_builtin_cuda;
 pub mod bitwise_builtin_cuda;
 pub mod mul_mod_builtin_cuda;
 pub mod pedersen_builtin_cuda;
+pub mod pedersen_builtin_narrow_cuda;
 pub mod poseidon_builtin_cuda;
+pub mod poseidon_builtin_split_cuda;
 pub mod range_check_bits_128_builtin_cuda;
 pub mod range_check_bits_96_builtin_cuda;
