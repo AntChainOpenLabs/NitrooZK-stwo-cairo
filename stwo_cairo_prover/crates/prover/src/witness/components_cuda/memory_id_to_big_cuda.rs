@@ -482,8 +482,7 @@ impl CudaInteractionClaimGeneratorCuda {
             .collect();
         tree_builder.extend_evals(small_trace);
 
-        let claimed_sum =
-            small_claimed_sum + big_claimed_sums.iter().copied().sum::<SecureField>();
+        let claimed_sum = small_claimed_sum + big_claimed_sums.iter().copied().sum::<SecureField>();
         InteractionClaim {
             small_claimed_sum,
             big_claimed_sums,

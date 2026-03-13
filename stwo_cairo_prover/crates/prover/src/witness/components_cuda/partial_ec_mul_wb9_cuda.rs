@@ -403,10 +403,8 @@ impl CudaInteractionClaimGenerator {
         // Create modified lookup elements for each relation
         let mod_pem =
             create_modified_lookup_for_cuda(lookup_elements, PARTIAL_EC_MUL_WB9_RELATION_ID);
-        let mod_ppt = create_modified_lookup_for_cuda(
-            lookup_elements,
-            PEDERSEN_POINTS_TABLE_WB9_RELATION_ID,
-        );
+        let mod_ppt =
+            create_modified_lookup_for_cuda(lookup_elements, PEDERSEN_POINTS_TABLE_WB9_RELATION_ID);
 
         let rc20_ids = [
             RC_19_RELATION_ID,

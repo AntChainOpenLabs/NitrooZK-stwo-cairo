@@ -7,8 +7,8 @@ use stwo::prover::poly::circle::CircleEvaluation;
 use stwo::prover::poly::BitReversedOrder;
 use stwo_air_utils::trace::component_trace::CudaComponentTrace;
 
-use super::super::{memory_address_to_id_cuda, memory_id_to_big_cuda};
 use super::super::range_check::{rc_12, rc_18, rc_3_6_6_3};
+use super::super::{memory_address_to_id_cuda, memory_id_to_big_cuda};
 use crate::witness::prelude::*;
 pub const N_TRACE_COLUMNS: usize = 426;
 pub const N_INTERACTION_TRACE_COLUMNS: usize = 94;
@@ -109,19 +109,160 @@ impl CudaClaimGenerator {
         }
 
         // 32 range_check_12 lookups (1 element each)
-        add_rc_cuda!(range_check_12_cuda_state, [
-            &lookup_data.range_check_12_0, &lookup_data.range_check_12_1, &lookup_data.range_check_12_2, &lookup_data.range_check_12_3, &lookup_data.range_check_12_4, &lookup_data.range_check_12_5, &lookup_data.range_check_12_6, &lookup_data.range_check_12_7, &lookup_data.range_check_12_8, &lookup_data.range_check_12_9, &lookup_data.range_check_12_10, &lookup_data.range_check_12_11, &lookup_data.range_check_12_12, &lookup_data.range_check_12_13, &lookup_data.range_check_12_14, &lookup_data.range_check_12_15, &lookup_data.range_check_12_16, &lookup_data.range_check_12_17, &lookup_data.range_check_12_18, &lookup_data.range_check_12_19, &lookup_data.range_check_12_20, &lookup_data.range_check_12_21, &lookup_data.range_check_12_22, &lookup_data.range_check_12_23, &lookup_data.range_check_12_24, &lookup_data.range_check_12_25, &lookup_data.range_check_12_26, &lookup_data.range_check_12_27, &lookup_data.range_check_12_28, &lookup_data.range_check_12_29, &lookup_data.range_check_12_30, &lookup_data.range_check_12_31
-        ]);
+        add_rc_cuda!(
+            range_check_12_cuda_state,
+            [
+                &lookup_data.range_check_12_0,
+                &lookup_data.range_check_12_1,
+                &lookup_data.range_check_12_2,
+                &lookup_data.range_check_12_3,
+                &lookup_data.range_check_12_4,
+                &lookup_data.range_check_12_5,
+                &lookup_data.range_check_12_6,
+                &lookup_data.range_check_12_7,
+                &lookup_data.range_check_12_8,
+                &lookup_data.range_check_12_9,
+                &lookup_data.range_check_12_10,
+                &lookup_data.range_check_12_11,
+                &lookup_data.range_check_12_12,
+                &lookup_data.range_check_12_13,
+                &lookup_data.range_check_12_14,
+                &lookup_data.range_check_12_15,
+                &lookup_data.range_check_12_16,
+                &lookup_data.range_check_12_17,
+                &lookup_data.range_check_12_18,
+                &lookup_data.range_check_12_19,
+                &lookup_data.range_check_12_20,
+                &lookup_data.range_check_12_21,
+                &lookup_data.range_check_12_22,
+                &lookup_data.range_check_12_23,
+                &lookup_data.range_check_12_24,
+                &lookup_data.range_check_12_25,
+                &lookup_data.range_check_12_26,
+                &lookup_data.range_check_12_27,
+                &lookup_data.range_check_12_28,
+                &lookup_data.range_check_12_29,
+                &lookup_data.range_check_12_30,
+                &lookup_data.range_check_12_31
+            ]
+        );
 
         // 62 range_check_18 lookups (1 element each, all relation 0)
-        add_rc_cuda_for_relation!(range_check_18_cuda_state, 0, [
-            &lookup_data.range_check_18_0, &lookup_data.range_check_18_1, &lookup_data.range_check_18_2, &lookup_data.range_check_18_3, &lookup_data.range_check_18_4, &lookup_data.range_check_18_5, &lookup_data.range_check_18_6, &lookup_data.range_check_18_7, &lookup_data.range_check_18_8, &lookup_data.range_check_18_9, &lookup_data.range_check_18_10, &lookup_data.range_check_18_11, &lookup_data.range_check_18_12, &lookup_data.range_check_18_13, &lookup_data.range_check_18_14, &lookup_data.range_check_18_15, &lookup_data.range_check_18_16, &lookup_data.range_check_18_17, &lookup_data.range_check_18_18, &lookup_data.range_check_18_19, &lookup_data.range_check_18_20, &lookup_data.range_check_18_21, &lookup_data.range_check_18_22, &lookup_data.range_check_18_23, &lookup_data.range_check_18_24, &lookup_data.range_check_18_25, &lookup_data.range_check_18_26, &lookup_data.range_check_18_27, &lookup_data.range_check_18_28, &lookup_data.range_check_18_29, &lookup_data.range_check_18_30, &lookup_data.range_check_18_31, &lookup_data.range_check_18_32, &lookup_data.range_check_18_33, &lookup_data.range_check_18_34, &lookup_data.range_check_18_35, &lookup_data.range_check_18_36, &lookup_data.range_check_18_37, &lookup_data.range_check_18_38, &lookup_data.range_check_18_39, &lookup_data.range_check_18_40, &lookup_data.range_check_18_41, &lookup_data.range_check_18_42, &lookup_data.range_check_18_43, &lookup_data.range_check_18_44, &lookup_data.range_check_18_45, &lookup_data.range_check_18_46, &lookup_data.range_check_18_47, &lookup_data.range_check_18_48, &lookup_data.range_check_18_49, &lookup_data.range_check_18_50, &lookup_data.range_check_18_51, &lookup_data.range_check_18_52, &lookup_data.range_check_18_53, &lookup_data.range_check_18_54, &lookup_data.range_check_18_55, &lookup_data.range_check_18_56, &lookup_data.range_check_18_57, &lookup_data.range_check_18_58, &lookup_data.range_check_18_59, &lookup_data.range_check_18_60, &lookup_data.range_check_18_61
-        ]);
+        add_rc_cuda_for_relation!(
+            range_check_18_cuda_state,
+            0,
+            [
+                &lookup_data.range_check_18_0,
+                &lookup_data.range_check_18_1,
+                &lookup_data.range_check_18_2,
+                &lookup_data.range_check_18_3,
+                &lookup_data.range_check_18_4,
+                &lookup_data.range_check_18_5,
+                &lookup_data.range_check_18_6,
+                &lookup_data.range_check_18_7,
+                &lookup_data.range_check_18_8,
+                &lookup_data.range_check_18_9,
+                &lookup_data.range_check_18_10,
+                &lookup_data.range_check_18_11,
+                &lookup_data.range_check_18_12,
+                &lookup_data.range_check_18_13,
+                &lookup_data.range_check_18_14,
+                &lookup_data.range_check_18_15,
+                &lookup_data.range_check_18_16,
+                &lookup_data.range_check_18_17,
+                &lookup_data.range_check_18_18,
+                &lookup_data.range_check_18_19,
+                &lookup_data.range_check_18_20,
+                &lookup_data.range_check_18_21,
+                &lookup_data.range_check_18_22,
+                &lookup_data.range_check_18_23,
+                &lookup_data.range_check_18_24,
+                &lookup_data.range_check_18_25,
+                &lookup_data.range_check_18_26,
+                &lookup_data.range_check_18_27,
+                &lookup_data.range_check_18_28,
+                &lookup_data.range_check_18_29,
+                &lookup_data.range_check_18_30,
+                &lookup_data.range_check_18_31,
+                &lookup_data.range_check_18_32,
+                &lookup_data.range_check_18_33,
+                &lookup_data.range_check_18_34,
+                &lookup_data.range_check_18_35,
+                &lookup_data.range_check_18_36,
+                &lookup_data.range_check_18_37,
+                &lookup_data.range_check_18_38,
+                &lookup_data.range_check_18_39,
+                &lookup_data.range_check_18_40,
+                &lookup_data.range_check_18_41,
+                &lookup_data.range_check_18_42,
+                &lookup_data.range_check_18_43,
+                &lookup_data.range_check_18_44,
+                &lookup_data.range_check_18_45,
+                &lookup_data.range_check_18_46,
+                &lookup_data.range_check_18_47,
+                &lookup_data.range_check_18_48,
+                &lookup_data.range_check_18_49,
+                &lookup_data.range_check_18_50,
+                &lookup_data.range_check_18_51,
+                &lookup_data.range_check_18_52,
+                &lookup_data.range_check_18_53,
+                &lookup_data.range_check_18_54,
+                &lookup_data.range_check_18_55,
+                &lookup_data.range_check_18_56,
+                &lookup_data.range_check_18_57,
+                &lookup_data.range_check_18_58,
+                &lookup_data.range_check_18_59,
+                &lookup_data.range_check_18_60,
+                &lookup_data.range_check_18_61
+            ]
+        );
 
         // 40 range_check_3_6_6_3 lookups (4 elements each)
-        add_rc_cuda!(range_check_3_6_6_3_cuda_state, [
-            &lookup_data.range_check_3_6_6_3_0, &lookup_data.range_check_3_6_6_3_1, &lookup_data.range_check_3_6_6_3_2, &lookup_data.range_check_3_6_6_3_3, &lookup_data.range_check_3_6_6_3_4, &lookup_data.range_check_3_6_6_3_5, &lookup_data.range_check_3_6_6_3_6, &lookup_data.range_check_3_6_6_3_7, &lookup_data.range_check_3_6_6_3_8, &lookup_data.range_check_3_6_6_3_9, &lookup_data.range_check_3_6_6_3_10, &lookup_data.range_check_3_6_6_3_11, &lookup_data.range_check_3_6_6_3_12, &lookup_data.range_check_3_6_6_3_13, &lookup_data.range_check_3_6_6_3_14, &lookup_data.range_check_3_6_6_3_15, &lookup_data.range_check_3_6_6_3_16, &lookup_data.range_check_3_6_6_3_17, &lookup_data.range_check_3_6_6_3_18, &lookup_data.range_check_3_6_6_3_19, &lookup_data.range_check_3_6_6_3_20, &lookup_data.range_check_3_6_6_3_21, &lookup_data.range_check_3_6_6_3_22, &lookup_data.range_check_3_6_6_3_23, &lookup_data.range_check_3_6_6_3_24, &lookup_data.range_check_3_6_6_3_25, &lookup_data.range_check_3_6_6_3_26, &lookup_data.range_check_3_6_6_3_27, &lookup_data.range_check_3_6_6_3_28, &lookup_data.range_check_3_6_6_3_29, &lookup_data.range_check_3_6_6_3_30, &lookup_data.range_check_3_6_6_3_31, &lookup_data.range_check_3_6_6_3_32, &lookup_data.range_check_3_6_6_3_33, &lookup_data.range_check_3_6_6_3_34, &lookup_data.range_check_3_6_6_3_35, &lookup_data.range_check_3_6_6_3_36, &lookup_data.range_check_3_6_6_3_37, &lookup_data.range_check_3_6_6_3_38, &lookup_data.range_check_3_6_6_3_39
-        ]);
+        add_rc_cuda!(
+            range_check_3_6_6_3_cuda_state,
+            [
+                &lookup_data.range_check_3_6_6_3_0,
+                &lookup_data.range_check_3_6_6_3_1,
+                &lookup_data.range_check_3_6_6_3_2,
+                &lookup_data.range_check_3_6_6_3_3,
+                &lookup_data.range_check_3_6_6_3_4,
+                &lookup_data.range_check_3_6_6_3_5,
+                &lookup_data.range_check_3_6_6_3_6,
+                &lookup_data.range_check_3_6_6_3_7,
+                &lookup_data.range_check_3_6_6_3_8,
+                &lookup_data.range_check_3_6_6_3_9,
+                &lookup_data.range_check_3_6_6_3_10,
+                &lookup_data.range_check_3_6_6_3_11,
+                &lookup_data.range_check_3_6_6_3_12,
+                &lookup_data.range_check_3_6_6_3_13,
+                &lookup_data.range_check_3_6_6_3_14,
+                &lookup_data.range_check_3_6_6_3_15,
+                &lookup_data.range_check_3_6_6_3_16,
+                &lookup_data.range_check_3_6_6_3_17,
+                &lookup_data.range_check_3_6_6_3_18,
+                &lookup_data.range_check_3_6_6_3_19,
+                &lookup_data.range_check_3_6_6_3_20,
+                &lookup_data.range_check_3_6_6_3_21,
+                &lookup_data.range_check_3_6_6_3_22,
+                &lookup_data.range_check_3_6_6_3_23,
+                &lookup_data.range_check_3_6_6_3_24,
+                &lookup_data.range_check_3_6_6_3_25,
+                &lookup_data.range_check_3_6_6_3_26,
+                &lookup_data.range_check_3_6_6_3_27,
+                &lookup_data.range_check_3_6_6_3_28,
+                &lookup_data.range_check_3_6_6_3_29,
+                &lookup_data.range_check_3_6_6_3_30,
+                &lookup_data.range_check_3_6_6_3_31,
+                &lookup_data.range_check_3_6_6_3_32,
+                &lookup_data.range_check_3_6_6_3_33,
+                &lookup_data.range_check_3_6_6_3_34,
+                &lookup_data.range_check_3_6_6_3_35,
+                &lookup_data.range_check_3_6_6_3_36,
+                &lookup_data.range_check_3_6_6_3_37,
+                &lookup_data.range_check_3_6_6_3_38,
+                &lookup_data.range_check_3_6_6_3_39
+            ]
+        );
 
         tree_builder.extend_evals(trace.to_evals().to_vec());
 
@@ -138,7 +279,6 @@ impl CudaClaimGenerator {
         )
     }
 }
-
 
 pub struct CudaSubComponentInputs {
     // 29 memory_address_to_id lookups

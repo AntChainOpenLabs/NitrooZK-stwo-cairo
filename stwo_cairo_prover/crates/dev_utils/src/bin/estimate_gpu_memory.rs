@@ -238,8 +238,7 @@ fn estimate_gpu_memory(input: ProverInput, label: &str, quick: bool) -> Estimati
         // Exact: run write_trace to get precise cell counts
         let preprocessed_trace =
             Arc::new(PreProcessedTraceVariant::Canonical.to_preprocessed_trace());
-        let cairo_claim_generator =
-            create_cairo_claim_generator(input, preprocessed_trace.clone());
+        let cairo_claim_generator = create_cairo_claim_generator(input, preprocessed_trace.clone());
 
         let pcs_config = PcsConfig::default();
         let max_domain_size =
@@ -265,7 +264,11 @@ fn estimate_gpu_memory(input: ProverInput, label: &str, quick: bool) -> Estimati
     //   Large workloads (>1B cells): 3.1× (sn_pie: 96.8 GB / 31.3 GB)
     //   Small workloads (<1B cells): 7.3× (pie_10_transfers: 23.9 GB / 3.3 GB)
     //   Preprocessed trace dominates small workloads → higher overhead ratio.
-    let multiplier = if total_cells > 1_000_000_000 { 3.1 } else { 7.3 };
+    let multiplier = if total_cells > 1_000_000_000 {
+        3.1
+    } else {
+        7.3
+    };
     let estimated_peak_gb = raw_gb * multiplier;
 
     EstimationResult {
@@ -295,14 +298,29 @@ fn print_result(r: &EstimationResult) {
 
     println!("\n--- Workload Summary ---");
     println!("  Total opcode steps:          {:>14}", r.n_steps);
-    println!("  memory_address_to_id count:  {:>14}", r.memory_address_to_id);
+    println!(
+        "  memory_address_to_id count:  {:>14}",
+        r.memory_address_to_id
+    );
     println!("  memory_id_to_big count:      {:>14}", r.memory_id_to_big);
-    println!("  memory_id_to_small count:    {:>14}", r.memory_id_to_small);
-    println!("  verify_instruction count:    {:>14}", r.verify_instruction);
+    println!(
+        "  memory_id_to_small count:    {:>14}",
+        r.memory_id_to_small
+    );
+    println!(
+        "  verify_instruction count:    {:>14}",
+        r.verify_instruction
+    );
 
     println!("\n--- GPU Resident Data ---");
-    println!("  mem_id_to_big constructor:   {:>10.2} GB", r.mem_id_to_big_gb);
-    println!("  mem_addr_to_id data:         {:>10.2} GB", r.mem_addr_to_id_gb);
+    println!(
+        "  mem_id_to_big constructor:   {:>10.2} GB",
+        r.mem_id_to_big_gb
+    );
+    println!(
+        "  mem_addr_to_id data:         {:>10.2} GB",
+        r.mem_addr_to_id_gb
+    );
     println!("  twiddles (fixed):            {:>10.2} GB", 0.26);
 
     let mode = if r.exact { "EXACT" } else { "HEURISTIC" };
@@ -330,10 +348,7 @@ fn print_result(r: &EstimationResult) {
 
     println!("\n--- GPU Peak Estimate ---");
     println!("  Formula: total_cells x 4B x {:.1}", r.multiplier);
-    println!(
-        "  Estimated GPU peak: {:.1} GB",
-        r.estimated_peak_gb
-    );
+    println!("  Estimated GPU peak: {:.1} GB", r.estimated_peak_gb);
 
     // Fit assessment for common GPUs
     println!("\n--- Hardware Fit ---");
@@ -359,9 +374,7 @@ fn print_result(r: &EstimationResult) {
     }
 
     if r.estimated_peak_gb > 32.0 {
-        println!(
-            "\n  Streaming spill reduces GPU peak to ~20 GB (fits RTX 5090/4090)."
-        );
+        println!("\n  Streaming spill reduces GPU peak to ~20 GB (fits RTX 5090/4090).");
         println!("  Use --cuda-spill flag when proving.");
     }
 }
@@ -384,7 +397,10 @@ fn print_json(r: &EstimationResult) {
     println!("  \"estimated_peak_gb\": {:.1},", r.estimated_peak_gb);
     println!("  \"fits_rtx4090\": {},", r.estimated_peak_gb < 24.0 * 0.90);
     println!("  \"fits_rtx5090\": {},", r.estimated_peak_gb < 32.0 * 0.90);
-    println!("  \"fits_a100_80gb\": {},", r.estimated_peak_gb < 80.0 * 0.90);
+    println!(
+        "  \"fits_a100_80gb\": {},",
+        r.estimated_peak_gb < 80.0 * 0.90
+    );
     println!("  \"needs_streaming\": {}", r.estimated_peak_gb > 32.0);
     println!("}}");
 }
@@ -404,7 +420,10 @@ fn main() -> Result<()> {
         if !args.json {
             eprintln!("Loading PIE from: {}", pie_path.display());
         }
-        (load_pie_input(pie_path, args.bootloader_path.as_ref())?, label)
+        (
+            load_pie_input(pie_path, args.bootloader_path.as_ref())?,
+            label,
+        )
     } else {
         let path = args.prover_input_path.as_ref().unwrap();
         let label = path

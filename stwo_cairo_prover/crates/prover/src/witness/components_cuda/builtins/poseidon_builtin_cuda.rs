@@ -135,9 +135,7 @@ impl CudaClaimGenerator {
 
         let builtin_evals: Vec<_> = all_cols
             .into_iter()
-            .map(|col| {
-                CircleEvaluation::<CudaBackend, M31, BitReversedOrder>::new(domain, col)
-            })
+            .map(|col| CircleEvaluation::<CudaBackend, M31, BitReversedOrder>::new(domain, col))
             .collect();
         tree_builder.extend_evals(builtin_evals);
 

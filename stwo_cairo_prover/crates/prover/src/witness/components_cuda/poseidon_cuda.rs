@@ -105,8 +105,7 @@ impl PoseidonContextCudaClaimGenerator {
         // ==== Step 2: Extract round_keys multiplicities from CUDA input_limb_1 ====
         // Download round numbers from CUDA generators (2 .to_cpu() calls total)
         {
-            use stwo::prover::backend::simd::m31::PackedM31;
-            use stwo::prover::backend::simd::m31::N_LANES;
+            use stwo::prover::backend::simd::m31::{PackedM31, N_LANES};
 
             let round_nums = self.poseidon_full_round_chain_cuda.input_limb_1.to_cpu();
             let n_total = round_nums.len();
@@ -125,7 +124,11 @@ impl PoseidonContextCudaClaimGenerator {
             }
             if padded_n_packed > n_packed {
                 let first = PackedM31::from_array(std::array::from_fn(|i| {
-                    if i < n_total { round_nums[i] } else { round_nums[0] }
+                    if i < n_total {
+                        round_nums[i]
+                    } else {
+                        round_nums[0]
+                    }
                 }));
                 for _ in n_packed..padded_n_packed {
                     self.poseidon_round_keys_trace_generator
@@ -134,8 +137,7 @@ impl PoseidonContextCudaClaimGenerator {
             }
         }
         {
-            use stwo::prover::backend::simd::m31::PackedM31;
-            use stwo::prover::backend::simd::m31::N_LANES;
+            use stwo::prover::backend::simd::m31::{PackedM31, N_LANES};
 
             let round_nums = self
                 .poseidon_3_partial_rounds_chain_cuda
@@ -157,7 +159,11 @@ impl PoseidonContextCudaClaimGenerator {
             }
             if padded_n_packed > n_packed {
                 let first = PackedM31::from_array(std::array::from_fn(|i| {
-                    if i < n_total { round_nums[i] } else { round_nums[0] }
+                    if i < n_total {
+                        round_nums[i]
+                    } else {
+                        round_nums[0]
+                    }
                 }));
                 for _ in n_packed..padded_n_packed {
                     self.poseidon_round_keys_trace_generator

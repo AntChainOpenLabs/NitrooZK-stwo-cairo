@@ -130,7 +130,8 @@ impl CudaClaimGenerator {
         // Note: Read from lookup_data.range_check_11_0 (which CUDA kernel writes to)
         range_check_11_cuda_state.add_cuda_inputs(&[lookup_data.range_check_11_0.clone()]);
         // range_check_18 has 1 field per row
-        range_check_18_cuda_state.add_cuda_inputs_for_relation(&[lookup_data.range_check_18_0.clone()], 0);
+        range_check_18_cuda_state
+            .add_cuda_inputs_for_relation(&[lookup_data.range_check_18_0.clone()], 0);
 
         tree_builder.extend_evals(trace.to_evals().to_vec());
 

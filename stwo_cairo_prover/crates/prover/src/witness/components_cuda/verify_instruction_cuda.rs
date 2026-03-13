@@ -11,7 +11,7 @@ use stwo::core::poly::circle::CanonicCoset;
 use stwo::prover::backend::cuda::CudaBackend;
 use stwo::prover::backend::simd::conversion::Unpack;
 use stwo::prover::backend::simd::m31::{PackedM31, N_LANES};
-use stwo::prover::backend::{Col, Column};
+use stwo::prover::backend::Column;
 use stwo::prover::poly::circle::CircleEvaluation;
 use stwo::prover::poly::BitReversedOrder;
 use stwo::stwo_cuda::base_field_vec::BaseFieldVec;
@@ -19,10 +19,9 @@ use stwo::stwo_cuda::bindings_airs;
 use stwo_cairo_adapter::decode::deconstruct_instruction;
 use stwo_cairo_adapter::HashMap;
 
-use super::memory_address_to_id_cuda;
-use super::range_check_4_3_cuda;
-use super::range_check_7_2_5_cuda;
-use super::memory_id_to_big_cuda;
+use super::{
+    memory_address_to_id_cuda, memory_id_to_big_cuda, range_check_4_3_cuda, range_check_7_2_5_cuda,
+};
 use crate::witness::utils::TreeBuilder;
 
 const N_INTERACTION_TRACE_COLUMNS: usize = 3;

@@ -52,7 +52,10 @@ where
     H::Hash: CairoSerialize,
 {
     fn serialize(&self, output: &mut Vec<FieldElement>) {
-        let Self { hash_witness, column_witness } = self;
+        let Self {
+            hash_witness,
+            column_witness,
+        } = self;
         hash_witness.serialize(output);
         column_witness.serialize(output);
     }

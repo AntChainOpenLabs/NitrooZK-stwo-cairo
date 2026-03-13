@@ -822,7 +822,7 @@ impl CudaInteractionClaimGenerator {
         let trace_size = 1u32 << trace_log_size;
 
         // Allocate interaction trace columns (50 logup columns * 4 for qm31)
-        let mut interaction_trace = (0..4 * N_INTERACTION_TRACE_COLUMNS)
+        let interaction_trace = (0..4 * N_INTERACTION_TRACE_COLUMNS)
             .map(|_| Col::<CudaBackend, BaseField>::zeros(trace_size as usize))
             .collect_vec();
 

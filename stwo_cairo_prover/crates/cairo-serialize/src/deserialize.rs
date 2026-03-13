@@ -74,7 +74,10 @@ where
     fn deserialize<'a>(data: &mut impl Iterator<Item = &'a FieldElement>) -> Self {
         let hash_witness = Vec::<H::Hash>::deserialize(data);
         let column_witness = CairoDeserialize::deserialize(data);
-        Self { hash_witness, column_witness }
+        Self {
+            hash_witness,
+            column_witness,
+        }
     }
 }
 

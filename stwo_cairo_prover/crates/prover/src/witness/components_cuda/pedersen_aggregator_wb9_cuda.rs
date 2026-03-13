@@ -214,9 +214,9 @@ struct CudaLookupData {
 // ---------------------------------------------------------------------------
 
 struct CudaSubComponentInputs {
-    mem: Vec<BaseFieldVec>,  // 3 arrays
-    rc8: Vec<BaseFieldVec>,  // 4 arrays
-    pem: Vec<BaseFieldVec>,  // 86 arrays (each 56*trace_size)
+    mem: Vec<BaseFieldVec>, // 3 arrays
+    rc8: Vec<BaseFieldVec>, // 4 arrays
+    pem: Vec<BaseFieldVec>, // 86 arrays (each 56*trace_size)
 }
 
 // ---------------------------------------------------------------------------

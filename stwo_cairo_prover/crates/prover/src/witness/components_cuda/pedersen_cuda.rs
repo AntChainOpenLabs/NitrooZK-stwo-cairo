@@ -9,14 +9,14 @@
 //! which are then fed to the PEM CUDA generator via set_cuda_inputs().
 //! No CPU round-trip for PEM inputs.
 
-use cairo_air::components::pedersen_aggregator_window_bits_18 as pedersen_aggregator_air;
 use cairo_air::components::{
-    partial_ec_mul_window_bits_18, pedersen_aggregator_window_bits_18,
-    pedersen_points_table_window_bits_18,
+    partial_ec_mul_window_bits_18, pedersen_aggregator_window_bits_18 as pedersen_aggregator_air,
+    pedersen_aggregator_window_bits_18, pedersen_points_table_window_bits_18,
 };
 use cairo_air::relations::CommonLookupElements;
 
-/// Local grouped interaction claim type (mirrors legacy `cairo_air::pedersen::air::InteractionClaim`).
+/// Local grouped interaction claim type (mirrors legacy
+/// `cairo_air::pedersen::air::InteractionClaim`).
 pub struct InteractionClaim {
     pub pedersen_aggregator: pedersen_aggregator_window_bits_18::InteractionClaim,
     pub partial_ec_mul: partial_ec_mul_window_bits_18::InteractionClaim,

@@ -10,25 +10,24 @@ use cairo_air::components::poseidon_aggregator;
 use cairo_air::relations::CommonLookupElements;
 use stwo::core::fields::m31::M31;
 use stwo::prover::backend::cuda::CudaBackend;
+use stwo::prover::backend::simd::m31::{PackedM31, N_LANES};
+use stwo::stwo_cuda::base_field_vec::BaseFieldVec;
 use stwo_cairo_adapter::memory::Memory;
 use stwo_cairo_common::preprocessed_columns::preprocessed_trace::PreProcessedTrace;
+use stwo_cairo_common::prover_types::simd::PackedFelt252Width27;
 
 use crate::witness::cairo_cuda::convert_simd_to_cuda_evaluation;
 use crate::witness::components::{
-    cube_252, memory_id_to_big, poseidon_3_partial_rounds_chain, poseidon_full_round_chain,
+    cube_252, memory_id_to_big, poseidon_3_partial_rounds_chain,
+    poseidon_aggregator as poseidon_aggregator_witness, poseidon_full_round_chain,
     range_check_252_width_27, range_check_3_3_3_3_3, range_check_4_4, range_check_4_4_4_4,
 };
-use crate::witness::components::poseidon_aggregator as poseidon_aggregator_witness;
 use crate::witness::components_cuda::poseidon_cuda::PoseidonContextCudaClaimGenerator;
 use crate::witness::components_cuda::{
     memory_id_to_big_cuda, poseidon_3_partial_rounds_chain_cuda, poseidon_full_round_chain_cuda,
 };
 use crate::witness::range_checks_cuda::RangeChecksCudaClaimGenerator;
 use crate::witness::utils::TreeBuilder;
-
-use stwo::prover::backend::simd::m31::{PackedM31, N_LANES};
-use stwo::stwo_cuda::base_field_vec::BaseFieldVec;
-use stwo_cairo_common::prover_types::simd::PackedFelt252Width27;
 
 /// Encapsulated CUDA wrapper around the SIMD poseidon_aggregator.
 ///
@@ -257,9 +256,15 @@ fn simd_to_cuda_full_round_chain(
     poseidon_full_round_chain_cuda::CudaPackedInputType {
         input_limb_0: BaseFieldVec::from_vec(limb0),
         input_limb_1: BaseFieldVec::from_vec(limb1),
-        state_0: state[0].each_ref().map(|v| BaseFieldVec::from_vec(v.clone())),
-        state_1: state[1].each_ref().map(|v| BaseFieldVec::from_vec(v.clone())),
-        state_2: state[2].each_ref().map(|v| BaseFieldVec::from_vec(v.clone())),
+        state_0: state[0]
+            .each_ref()
+            .map(|v| BaseFieldVec::from_vec(v.clone())),
+        state_1: state[1]
+            .each_ref()
+            .map(|v| BaseFieldVec::from_vec(v.clone())),
+        state_2: state[2]
+            .each_ref()
+            .map(|v| BaseFieldVec::from_vec(v.clone())),
     }
 }
 

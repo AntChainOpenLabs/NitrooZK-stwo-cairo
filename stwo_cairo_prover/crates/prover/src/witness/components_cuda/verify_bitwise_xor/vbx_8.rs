@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
-use cairo_air::components::verify_bitwise_xor_8::{Claim, InteractionClaim, LOG_SIZE};
+use cairo_air::components::verify_bitwise_xor_8::{Claim, InteractionClaim};
 use cairo_air::relations::CommonLookupElements;
 use stwo::core::fields::m31::BaseField;
 use stwo::core::fields::qm31::SecureField;

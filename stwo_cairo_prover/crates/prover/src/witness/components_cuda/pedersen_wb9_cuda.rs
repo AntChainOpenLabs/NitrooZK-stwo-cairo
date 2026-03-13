@@ -9,10 +9,9 @@
 //! which are then fed to the PEM CUDA generator via set_cuda_inputs().
 //! No CPU round-trip for PEM inputs.
 
-use cairo_air::components::pedersen_aggregator_window_bits_9 as pedersen_aggregator_wb9_air;
 use cairo_air::components::{
-    partial_ec_mul_window_bits_9, pedersen_aggregator_window_bits_9,
-    pedersen_points_table_window_bits_9,
+    partial_ec_mul_window_bits_9, pedersen_aggregator_window_bits_9 as pedersen_aggregator_wb9_air,
+    pedersen_aggregator_window_bits_9, pedersen_points_table_window_bits_9,
 };
 use cairo_air::relations::CommonLookupElements;
 
@@ -62,8 +61,8 @@ impl PedersenContextWb9CudaClaimGenerator {
         Self {
             pedersen_aggregator_wb9_cuda: pedersen_aggregator_wb9_cuda::CudaClaimGenerator::new(),
             partial_ec_mul_wb9_cuda: partial_ec_mul_wb9_cuda::CudaClaimGenerator::new(),
-            pedersen_points_table_wb9_cuda:
-                pedersen_points_table_wb9_cuda::CudaClaimGenerator::new(),
+            pedersen_points_table_wb9_cuda: pedersen_points_table_wb9_cuda::CudaClaimGenerator::new(
+            ),
         }
     }
 
@@ -83,8 +82,11 @@ impl PedersenContextWb9CudaClaimGenerator {
         partial_ec_mul_wb9_cuda::CudaClaimGenerator,
         pedersen_points_table_wb9_cuda::CudaClaimGenerator,
     ) {
-        let span =
-            span!(Level::INFO, "write pedersen aggregator wb9 trace (native CUDA)").entered();
+        let span = span!(
+            Level::INFO,
+            "write pedersen aggregator wb9 trace (native CUDA)"
+        )
+        .entered();
 
         if self.pedersen_aggregator_wb9_cuda.is_empty() {
             span.exit();
@@ -265,9 +267,7 @@ impl PedersenWb9InteractionMode {
                     }),
                 }
             }
-            PedersenWb9InteractionMode::Empty => {
-                PedersenContextWb9InteractionClaim { claim: None }
-            }
+            PedersenWb9InteractionMode::Empty => PedersenContextWb9InteractionClaim { claim: None },
         }
     }
 }

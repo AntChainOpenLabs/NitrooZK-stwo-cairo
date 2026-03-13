@@ -31,8 +31,7 @@ use stwo::prover::poly::circle::{CircleCoefficients, CircleEvaluation, PolyOps};
 use stwo::prover::poly::twiddles::TwiddleTree;
 use stwo::prover::poly::BitReversedOrder;
 use stwo::stwo_cuda::base_field_vec::BaseFieldVec;
-use stwo::stwo_cuda::bindings;
-use stwo::stwo_cuda::bindings_airs;
+use stwo::stwo_cuda::{bindings, bindings_airs};
 use stwo_cairo_common::preprocessed_columns::blake::BlakeSigma;
 use stwo_cairo_common::preprocessed_columns::pedersen::PedersenPoints;
 use stwo_cairo_common::preprocessed_columns::poseidon::PoseidonRoundKeys;
@@ -184,9 +183,8 @@ fn gen_preprocessed_trace_on_gpu(
             cached[col_idx].clone()
         } else if let Some(col_idx) = parse_pedersen_points_small_id(&id.id) {
             pedersen_small_count += 1;
-            let cached = pedersen_small_cache.get_or_insert_with(|| {
-                gen_pedersen_small_columns_simd_fallback(*log_size)
-            });
+            let cached = pedersen_small_cache
+                .get_or_insert_with(|| gen_pedersen_small_columns_simd_fallback(*log_size));
             cached[col_idx].clone()
         } else if let Some(col_idx) = parse_pedersen_points_id(&id.id) {
             pedersen_count += 1;
@@ -251,7 +249,7 @@ pub fn interpolate_columns_batched(
         .collect();
 
     // Sort by log_size to group same-size columns together.
-    indexed.sort_by_key(|(_, ls, _, _)| *ls);
+    indexed.sort_by_key(|(_, ls, ..)| *ls);
 
     // Count groups for logging.
     {

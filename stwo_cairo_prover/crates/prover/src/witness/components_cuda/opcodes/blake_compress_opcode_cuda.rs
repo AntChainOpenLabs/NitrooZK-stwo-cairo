@@ -169,9 +169,6 @@ impl CudaClaimGenerator {
         // Add CUDA inputs directly to CUDA blake_round generator (all rows including padding)
         blake_round_cuda_state.add_cuda_inputs(&sub_component_inputs.blake_round);
 
-        // Add to verify_instruction SIMD generator (still uses SIMD trace generation)
-        let padded_size = 1usize << log_size;
-
         // Note: range_check_7_2_5 multiplicities are already added to CUDA generator (line 164).
         // No need to also add to SIMD generator - that would cause double-counting when merged.
 

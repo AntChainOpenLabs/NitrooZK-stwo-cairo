@@ -6,8 +6,7 @@ use stwo::prover::poly::circle::CircleEvaluation;
 use stwo::prover::poly::BitReversedOrder;
 
 use super::super::{
-    memory_address_to_id_cuda, memory_id_to_big_cuda, range_check_20_cuda,
-    verify_instruction_cuda,
+    memory_address_to_id_cuda, memory_id_to_big_cuda, range_check_20_cuda, verify_instruction_cuda,
 };
 use crate::witness::prelude::*;
 
@@ -144,51 +143,87 @@ impl CudaClaimGenerator {
 
         // CUDA _h → relation 0 (k_col, carry_7, carry_15, carry_23)
         range_check_20_cuda_state.add_cuda_inputs_for_relation_with_offset(
-            &[lookup_data.range_check_19_h_0.clone(), lookup_data.range_check_19_h_1.clone(),
-              lookup_data.range_check_19_h_2.clone(), lookup_data.range_check_19_h_3.clone()],
-            0, rc20_offset,
+            &[
+                lookup_data.range_check_19_h_0.clone(),
+                lookup_data.range_check_19_h_1.clone(),
+                lookup_data.range_check_19_h_2.clone(),
+                lookup_data.range_check_19_h_3.clone(),
+            ],
+            0,
+            rc20_offset,
         );
         // CUDA _0 → relation 1 (carry_0, carry_8, carry_16, carry_24)
         range_check_20_cuda_state.add_cuda_inputs_for_relation_with_offset(
-            &[lookup_data.range_check_19_0.clone(), lookup_data.range_check_19_1.clone(),
-              lookup_data.range_check_19_2.clone(), lookup_data.range_check_19_3.clone()],
-            1, rc20_offset,
+            &[
+                lookup_data.range_check_19_0.clone(),
+                lookup_data.range_check_19_1.clone(),
+                lookup_data.range_check_19_2.clone(),
+                lookup_data.range_check_19_3.clone(),
+            ],
+            1,
+            rc20_offset,
         );
         // CUDA _b → relation 2
         range_check_20_cuda_state.add_cuda_inputs_for_relation_with_offset(
-            &[lookup_data.range_check_19_b_0.clone(), lookup_data.range_check_19_b_1.clone(),
-              lookup_data.range_check_19_b_2.clone(), lookup_data.range_check_19_b_3.clone()],
-            2, rc20_offset,
+            &[
+                lookup_data.range_check_19_b_0.clone(),
+                lookup_data.range_check_19_b_1.clone(),
+                lookup_data.range_check_19_b_2.clone(),
+                lookup_data.range_check_19_b_3.clone(),
+            ],
+            2,
+            rc20_offset,
         );
         // CUDA _c → relation 3
         range_check_20_cuda_state.add_cuda_inputs_for_relation_with_offset(
-            &[lookup_data.range_check_19_c_0.clone(), lookup_data.range_check_19_c_1.clone(),
-              lookup_data.range_check_19_c_2.clone(), lookup_data.range_check_19_c_3.clone()],
-            3, rc20_offset,
+            &[
+                lookup_data.range_check_19_c_0.clone(),
+                lookup_data.range_check_19_c_1.clone(),
+                lookup_data.range_check_19_c_2.clone(),
+                lookup_data.range_check_19_c_3.clone(),
+            ],
+            3,
+            rc20_offset,
         );
         // CUDA _d → relation 4
         range_check_20_cuda_state.add_cuda_inputs_for_relation_with_offset(
-            &[lookup_data.range_check_19_d_0.clone(), lookup_data.range_check_19_d_1.clone(),
-              lookup_data.range_check_19_d_2.clone()],
-            4, rc20_offset,
+            &[
+                lookup_data.range_check_19_d_0.clone(),
+                lookup_data.range_check_19_d_1.clone(),
+                lookup_data.range_check_19_d_2.clone(),
+            ],
+            4,
+            rc20_offset,
         );
         // CUDA _e → relation 5
         range_check_20_cuda_state.add_cuda_inputs_for_relation_with_offset(
-            &[lookup_data.range_check_19_e_0.clone(), lookup_data.range_check_19_e_1.clone(),
-              lookup_data.range_check_19_e_2.clone()],
-            5, rc20_offset,
+            &[
+                lookup_data.range_check_19_e_0.clone(),
+                lookup_data.range_check_19_e_1.clone(),
+                lookup_data.range_check_19_e_2.clone(),
+            ],
+            5,
+            rc20_offset,
         );
         // CUDA _f → relation 6
         range_check_20_cuda_state.add_cuda_inputs_for_relation_with_offset(
-            &[lookup_data.range_check_19_f_0.clone(), lookup_data.range_check_19_f_1.clone(),
-              lookup_data.range_check_19_f_2.clone()],
-            6, rc20_offset,
+            &[
+                lookup_data.range_check_19_f_0.clone(),
+                lookup_data.range_check_19_f_1.clone(),
+                lookup_data.range_check_19_f_2.clone(),
+            ],
+            6,
+            rc20_offset,
         );
         // CUDA _g → relation 7
         range_check_20_cuda_state.add_cuda_inputs_for_relation_with_offset(
-            &[lookup_data.range_check_19_g_0.clone(), lookup_data.range_check_19_g_1.clone(),
-              lookup_data.range_check_19_g_2.clone()],
-            7, rc20_offset,
+            &[
+                lookup_data.range_check_19_g_0.clone(),
+                lookup_data.range_check_19_g_1.clone(),
+                lookup_data.range_check_19_g_2.clone(),
+            ],
+            7,
+            rc20_offset,
         );
 
         tree_builder.extend_evals(trace.to_evals().to_vec());

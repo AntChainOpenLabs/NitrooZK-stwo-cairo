@@ -278,8 +278,6 @@ impl OpcodesCudaClaimGenerator {
                     memory_address_to_id_cuda,
                     memory_id_to_big_cuda,
                     verify_instruction_cuda,
-
-
                 )
             })
             .unzip();
@@ -293,8 +291,6 @@ impl OpcodesCudaClaimGenerator {
                     memory_address_to_id_cuda,
                     memory_id_to_big_cuda,
                     verify_instruction_cuda,
-
-
                 )
             })
             .unzip();
@@ -310,8 +306,6 @@ impl OpcodesCudaClaimGenerator {
                     &range_checks_trace_generator.rc_11_trace_generator,
                     &range_checks_trace_generator.rc_18_trace_generator,
                     verify_instruction_cuda,
-
-
                 )
             })
             .unzip();
@@ -325,8 +319,6 @@ impl OpcodesCudaClaimGenerator {
                     memory_address_to_id_cuda,
                     memory_id_to_big_cuda,
                     verify_instruction_cuda,
-
-
                 )
             })
             .unzip();
@@ -340,8 +332,6 @@ impl OpcodesCudaClaimGenerator {
                     memory_address_to_id_cuda,
                     memory_id_to_big_cuda,
                     verify_instruction_cuda,
-
-
                 )
             })
             .unzip();
@@ -358,8 +348,6 @@ impl OpcodesCudaClaimGenerator {
                     memory_address_to_id_cuda,
                     memory_id_to_big_cuda,
                     verify_instruction_cuda,
-
-
                 )
             })
             .unzip();
@@ -378,8 +366,6 @@ impl OpcodesCudaClaimGenerator {
                         .expect("Blake requires triple_xor_32_cuda"),
                     vbx_8_cuda.as_ref().expect("Blake requires vbx_8_cuda"),
                     verify_instruction_cuda,
-
-
                     blake_round_cuda
                         .as_mut()
                         .expect("Blake requires blake_round_cuda"),
@@ -396,8 +382,6 @@ impl OpcodesCudaClaimGenerator {
                     memory_address_to_id_cuda,
                     memory_id_to_big_cuda,
                     verify_instruction_cuda,
-
-
                 )
             })
             .unzip();
@@ -411,8 +395,6 @@ impl OpcodesCudaClaimGenerator {
                     memory_address_to_id_cuda,
                     memory_id_to_big_cuda,
                     verify_instruction_cuda,
-
-
                 )
             })
             .unzip();
@@ -426,8 +408,6 @@ impl OpcodesCudaClaimGenerator {
                     memory_address_to_id_cuda,
                     memory_id_to_big_cuda,
                     verify_instruction_cuda,
-
-
                     &range_checks_trace_generator.rc_9_9_trace_generator,
                     &range_checks_trace_generator.rc_20_trace_generator,
                     &range_checks_trace_generator.rc_18_trace_generator,
@@ -445,8 +425,6 @@ impl OpcodesCudaClaimGenerator {
                     memory_address_to_id_cuda,
                     memory_id_to_big_cuda,
                     verify_instruction_cuda,
-
-
                 )
             })
             .unzip();
@@ -460,8 +438,6 @@ impl OpcodesCudaClaimGenerator {
                     memory_address_to_id_cuda,
                     memory_id_to_big_cuda,
                     verify_instruction_cuda,
-
-
                 )
             })
             .unzip();
@@ -475,8 +451,6 @@ impl OpcodesCudaClaimGenerator {
                     memory_address_to_id_cuda,
                     memory_id_to_big_cuda,
                     verify_instruction_cuda,
-
-
                 )
             })
             .unzip();
@@ -490,8 +464,6 @@ impl OpcodesCudaClaimGenerator {
                     memory_address_to_id_cuda,
                     memory_id_to_big_cuda,
                     verify_instruction_cuda,
-
-
                 )
             })
             .unzip();
@@ -505,8 +477,6 @@ impl OpcodesCudaClaimGenerator {
                     memory_address_to_id_cuda,
                     memory_id_to_big_cuda,
                     verify_instruction_cuda,
-
-
                 )
             })
             .unzip();
@@ -520,8 +490,6 @@ impl OpcodesCudaClaimGenerator {
                     memory_address_to_id_cuda,
                     memory_id_to_big_cuda,
                     verify_instruction_cuda,
-
-
                 )
             })
             .unzip();
@@ -535,8 +503,6 @@ impl OpcodesCudaClaimGenerator {
                     memory_address_to_id_cuda,
                     memory_id_to_big_cuda,
                     verify_instruction_cuda,
-
-
                     &range_checks_trace_generator.rc_20_trace_generator,
                 )
             })
@@ -552,8 +518,6 @@ impl OpcodesCudaClaimGenerator {
                     memory_id_to_big_cuda,
                     &range_checks_trace_generator.rc_11_trace_generator,
                     verify_instruction_cuda,
-
-
                 )
             })
             .unzip();
@@ -568,8 +532,6 @@ impl OpcodesCudaClaimGenerator {
                     memory_id_to_big_cuda,
                     &range_checks_trace_generator.rc_4_4_4_4_trace_generator,
                     verify_instruction_cuda,
-
-
                 )
             })
             .unzip();
@@ -583,8 +545,6 @@ impl OpcodesCudaClaimGenerator {
                     memory_address_to_id_cuda,
                     memory_id_to_big_cuda,
                     verify_instruction_cuda,
-
-
                 )
             })
             .unzip();

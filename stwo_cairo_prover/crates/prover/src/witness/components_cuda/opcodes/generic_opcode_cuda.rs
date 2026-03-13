@@ -3,8 +3,10 @@ use cairo_air::components::generic_opcode::{Claim, InteractionClaim};
 use cairo_air::relations::CommonLookupElements;
 use stwo::prover::backend::cuda::CudaBackend;
 
-use super::super::{memory_address_to_id_cuda, memory_id_to_big_cuda, verify_instruction_cuda};
-use super::super::{range_check_9_9_cuda, range_check_20_cuda, range_check_18_cuda, range_check_11_cuda};
+use super::super::{
+    memory_address_to_id_cuda, memory_id_to_big_cuda, range_check_11_cuda, range_check_18_cuda,
+    range_check_20_cuda, range_check_9_9_cuda, verify_instruction_cuda,
+};
 use crate::witness::prelude::*;
 
 pub type InputType = CasmState;
@@ -144,48 +146,78 @@ impl CudaClaimGenerator {
         // Add range check inputs via CUDA path.
         // range_check_9_9: relation 0, 4 lookups
         range_check_9_9_cuda_state.add_cuda_inputs_for_relation(
-            &[lookup_data.range_check_9_9_0.clone(), lookup_data.range_check_9_9_1.clone(),
-              lookup_data.range_check_9_9_2.clone(), lookup_data.range_check_9_9_3.clone()],
+            &[
+                lookup_data.range_check_9_9_0.clone(),
+                lookup_data.range_check_9_9_1.clone(),
+                lookup_data.range_check_9_9_2.clone(),
+                lookup_data.range_check_9_9_3.clone(),
+            ],
             0,
         );
         // range_check_9_9_b: relation 1, 4 lookups
         range_check_9_9_cuda_state.add_cuda_inputs_for_relation(
-            &[lookup_data.range_check_9_9_b_0.clone(), lookup_data.range_check_9_9_b_1.clone(),
-              lookup_data.range_check_9_9_b_2.clone(), lookup_data.range_check_9_9_b_3.clone()],
+            &[
+                lookup_data.range_check_9_9_b_0.clone(),
+                lookup_data.range_check_9_9_b_1.clone(),
+                lookup_data.range_check_9_9_b_2.clone(),
+                lookup_data.range_check_9_9_b_3.clone(),
+            ],
             1,
         );
         // range_check_9_9_c: relation 2, 4 lookups
         range_check_9_9_cuda_state.add_cuda_inputs_for_relation(
-            &[lookup_data.range_check_9_9_c_0.clone(), lookup_data.range_check_9_9_c_1.clone(),
-              lookup_data.range_check_9_9_c_2.clone(), lookup_data.range_check_9_9_c_3.clone()],
+            &[
+                lookup_data.range_check_9_9_c_0.clone(),
+                lookup_data.range_check_9_9_c_1.clone(),
+                lookup_data.range_check_9_9_c_2.clone(),
+                lookup_data.range_check_9_9_c_3.clone(),
+            ],
             2,
         );
         // range_check_9_9_d: relation 3, 4 lookups
         range_check_9_9_cuda_state.add_cuda_inputs_for_relation(
-            &[lookup_data.range_check_9_9_d_0.clone(), lookup_data.range_check_9_9_d_1.clone(),
-              lookup_data.range_check_9_9_d_2.clone(), lookup_data.range_check_9_9_d_3.clone()],
+            &[
+                lookup_data.range_check_9_9_d_0.clone(),
+                lookup_data.range_check_9_9_d_1.clone(),
+                lookup_data.range_check_9_9_d_2.clone(),
+                lookup_data.range_check_9_9_d_3.clone(),
+            ],
             3,
         );
         // range_check_9_9_e: relation 4, 4 lookups
         range_check_9_9_cuda_state.add_cuda_inputs_for_relation(
-            &[lookup_data.range_check_9_9_e_0.clone(), lookup_data.range_check_9_9_e_1.clone(),
-              lookup_data.range_check_9_9_e_2.clone(), lookup_data.range_check_9_9_e_3.clone()],
+            &[
+                lookup_data.range_check_9_9_e_0.clone(),
+                lookup_data.range_check_9_9_e_1.clone(),
+                lookup_data.range_check_9_9_e_2.clone(),
+                lookup_data.range_check_9_9_e_3.clone(),
+            ],
             4,
         );
         // range_check_9_9_f: relation 5, 4 lookups
         range_check_9_9_cuda_state.add_cuda_inputs_for_relation(
-            &[lookup_data.range_check_9_9_f_0.clone(), lookup_data.range_check_9_9_f_1.clone(),
-              lookup_data.range_check_9_9_f_2.clone(), lookup_data.range_check_9_9_f_3.clone()],
+            &[
+                lookup_data.range_check_9_9_f_0.clone(),
+                lookup_data.range_check_9_9_f_1.clone(),
+                lookup_data.range_check_9_9_f_2.clone(),
+                lookup_data.range_check_9_9_f_3.clone(),
+            ],
             5,
         );
         // range_check_9_9_g: relation 6, 2 lookups
         range_check_9_9_cuda_state.add_cuda_inputs_for_relation(
-            &[lookup_data.range_check_9_9_g_0.clone(), lookup_data.range_check_9_9_g_1.clone()],
+            &[
+                lookup_data.range_check_9_9_g_0.clone(),
+                lookup_data.range_check_9_9_g_1.clone(),
+            ],
             6,
         );
         // range_check_9_9_h: relation 7, 2 lookups
         range_check_9_9_cuda_state.add_cuda_inputs_for_relation(
-            &[lookup_data.range_check_9_9_h_0.clone(), lookup_data.range_check_9_9_h_1.clone()],
+            &[
+                lookup_data.range_check_9_9_h_0.clone(),
+                lookup_data.range_check_9_9_h_1.clone(),
+            ],
             7,
         );
 
@@ -194,54 +226,91 @@ impl CudaClaimGenerator {
 
         // CUDA _h → relation 0
         range_check_20_cuda_state.add_cuda_inputs_for_relation_with_offset(
-            &[lookup_data.range_check_19_h_0.clone(), lookup_data.range_check_19_h_1.clone(),
-              lookup_data.range_check_19_h_2.clone(), lookup_data.range_check_19_h_3.clone()],
-            0, rc20_offset,
+            &[
+                lookup_data.range_check_19_h_0.clone(),
+                lookup_data.range_check_19_h_1.clone(),
+                lookup_data.range_check_19_h_2.clone(),
+                lookup_data.range_check_19_h_3.clone(),
+            ],
+            0,
+            rc20_offset,
         );
         // CUDA _0 → relation 1
         range_check_20_cuda_state.add_cuda_inputs_for_relation_with_offset(
-            &[lookup_data.range_check_19_0.clone(), lookup_data.range_check_19_1.clone(),
-              lookup_data.range_check_19_2.clone(), lookup_data.range_check_19_3.clone()],
-            1, rc20_offset,
+            &[
+                lookup_data.range_check_19_0.clone(),
+                lookup_data.range_check_19_1.clone(),
+                lookup_data.range_check_19_2.clone(),
+                lookup_data.range_check_19_3.clone(),
+            ],
+            1,
+            rc20_offset,
         );
         // CUDA _b → relation 2
         range_check_20_cuda_state.add_cuda_inputs_for_relation_with_offset(
-            &[lookup_data.range_check_19_b_0.clone(), lookup_data.range_check_19_b_1.clone(),
-              lookup_data.range_check_19_b_2.clone(), lookup_data.range_check_19_b_3.clone()],
-            2, rc20_offset,
+            &[
+                lookup_data.range_check_19_b_0.clone(),
+                lookup_data.range_check_19_b_1.clone(),
+                lookup_data.range_check_19_b_2.clone(),
+                lookup_data.range_check_19_b_3.clone(),
+            ],
+            2,
+            rc20_offset,
         );
         // CUDA _c → relation 3
         range_check_20_cuda_state.add_cuda_inputs_for_relation_with_offset(
-            &[lookup_data.range_check_19_c_0.clone(), lookup_data.range_check_19_c_1.clone(),
-              lookup_data.range_check_19_c_2.clone(), lookup_data.range_check_19_c_3.clone()],
-            3, rc20_offset,
+            &[
+                lookup_data.range_check_19_c_0.clone(),
+                lookup_data.range_check_19_c_1.clone(),
+                lookup_data.range_check_19_c_2.clone(),
+                lookup_data.range_check_19_c_3.clone(),
+            ],
+            3,
+            rc20_offset,
         );
         // CUDA _d → relation 4
         range_check_20_cuda_state.add_cuda_inputs_for_relation_with_offset(
-            &[lookup_data.range_check_19_d_0.clone(), lookup_data.range_check_19_d_1.clone(),
-              lookup_data.range_check_19_d_2.clone()],
-            4, rc20_offset,
+            &[
+                lookup_data.range_check_19_d_0.clone(),
+                lookup_data.range_check_19_d_1.clone(),
+                lookup_data.range_check_19_d_2.clone(),
+            ],
+            4,
+            rc20_offset,
         );
         // CUDA _e → relation 5
         range_check_20_cuda_state.add_cuda_inputs_for_relation_with_offset(
-            &[lookup_data.range_check_19_e_0.clone(), lookup_data.range_check_19_e_1.clone(),
-              lookup_data.range_check_19_e_2.clone()],
-            5, rc20_offset,
+            &[
+                lookup_data.range_check_19_e_0.clone(),
+                lookup_data.range_check_19_e_1.clone(),
+                lookup_data.range_check_19_e_2.clone(),
+            ],
+            5,
+            rc20_offset,
         );
         // CUDA _f → relation 6
         range_check_20_cuda_state.add_cuda_inputs_for_relation_with_offset(
-            &[lookup_data.range_check_19_f_0.clone(), lookup_data.range_check_19_f_1.clone(),
-              lookup_data.range_check_19_f_2.clone()],
-            6, rc20_offset,
+            &[
+                lookup_data.range_check_19_f_0.clone(),
+                lookup_data.range_check_19_f_1.clone(),
+                lookup_data.range_check_19_f_2.clone(),
+            ],
+            6,
+            rc20_offset,
         );
         // CUDA _g → relation 7
         range_check_20_cuda_state.add_cuda_inputs_for_relation_with_offset(
-            &[lookup_data.range_check_19_g_0.clone(), lookup_data.range_check_19_g_1.clone(),
-              lookup_data.range_check_19_g_2.clone()],
-            7, rc20_offset,
+            &[
+                lookup_data.range_check_19_g_0.clone(),
+                lookup_data.range_check_19_g_1.clone(),
+                lookup_data.range_check_19_g_2.clone(),
+            ],
+            7,
+            rc20_offset,
         );
 
-        range_check_18_cuda_state.add_cuda_inputs_for_relation(&[lookup_data.range_check_18_0.clone()], 0);
+        range_check_18_cuda_state
+            .add_cuda_inputs_for_relation(&[lookup_data.range_check_18_0.clone()], 0);
 
         range_check_11_cuda_state.add_cuda_inputs(&[lookup_data.range_check_11_0.clone()]);
 
