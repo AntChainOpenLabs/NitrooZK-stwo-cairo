@@ -69,24 +69,11 @@ impl CudaClaimGenerator {
         // IMPORTANT: Must pad with first PACKED input's values (16 rows) to match SIMD behavior
         // SIMD pads at packed input level: packed_inputs.resize(packed_size, *first_packed_input)
         // Each packed input contains 16 rows, so we need to replicate the first 16 rows
+        // GPU in-place padding — no download/upload roundtrip.
         const N_LANES: usize = 16;
         if n_rows < padded_size {
-            let padding_count = padded_size - n_rows;
-
             for input in self.packed_inputs.iter_mut() {
-                // Get the first 16 values (first packed input)
-                let input_cpu = input.to_cpu();
-                let first_packed: Vec<M31> = input_cpu[0..N_LANES].to_vec();
-
-                // Create padding by repeating first_packed
-                let padding_vec: Vec<M31> = first_packed
-                    .iter()
-                    .cycle()
-                    .take(padding_count)
-                    .cloned()
-                    .collect();
-                let padding = BaseFieldVec::from_vec(padding_vec);
-                input.extend(&padding);
+                input.pad_with_cycle(n_rows, padded_size, N_LANES);
             }
         }
 

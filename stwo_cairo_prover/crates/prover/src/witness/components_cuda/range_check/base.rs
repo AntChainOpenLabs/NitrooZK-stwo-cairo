@@ -74,9 +74,8 @@ impl<const N_RANGES: usize> CudaRangeCheckGenerator<N_RANGES> {
     }
 
     pub fn merge_simd_multiplicities(&mut self, simd_multiplicities: &[u32]) {
-        let mut cuda_mults = self.multiplicities.to_vec();
-
         if std::env::var("MULT_DIAG").unwrap_or_default() == "1" {
+            let cuda_mults = self.multiplicities.to_vec();
             let cuda_total: u64 = cuda_mults.iter().map(|&x| x as u64).sum();
             let simd_total: u64 = simd_multiplicities.iter().map(|&x| x as u64).sum();
             println!(
@@ -88,11 +87,9 @@ impl<const N_RANGES: usize> CudaRangeCheckGenerator<N_RANGES> {
             );
         }
 
-        let min_len = std::cmp::min(cuda_mults.len(), simd_multiplicities.len());
-        for i in 0..min_len {
-            cuda_mults[i] += simd_multiplicities[i];
-        }
-        self.multiplicities = Uint32Vec::from_vec(cuda_mults);
+        // Upload SIMD mults to GPU and add in-place — no download/upload roundtrip.
+        let gpu_simd = Uint32Vec::from_vec(simd_multiplicities.to_vec());
+        self.multiplicities.add_from(&gpu_simd);
     }
 
     pub fn log_size(&self) -> u32 {
@@ -301,9 +298,8 @@ impl<const N_RANGES: usize, const N_RELATIONS: usize>
     pub fn merge_simd_multiplicities(&mut self, simd_mults: &[Vec<u32>]) {
         assert_eq!(simd_mults.len(), N_RELATIONS);
         for (relation_idx, simd_mult) in simd_mults.iter().enumerate() {
-            let mut cuda_mults = self.multiplicities[relation_idx].to_vec();
-
             if std::env::var("MULT_DIAG").unwrap_or_default() == "1" {
+                let cuda_mults = self.multiplicities[relation_idx].to_vec();
                 let cuda_total: u64 = cuda_mults.iter().map(|&x| x as u64).sum();
                 let simd_total: u64 = simd_mult.iter().map(|&x| x as u64).sum();
                 println!(
@@ -312,11 +308,9 @@ impl<const N_RANGES: usize, const N_RELATIONS: usize>
                 );
             }
 
-            let min_len = std::cmp::min(cuda_mults.len(), simd_mult.len());
-            for i in 0..min_len {
-                cuda_mults[i] += simd_mult[i];
-            }
-            self.multiplicities[relation_idx] = Uint32Vec::from_vec(cuda_mults);
+            // Upload SIMD mults to GPU and add in-place — no download/upload roundtrip.
+            let gpu_simd = Uint32Vec::from_vec(simd_mult.clone());
+            self.multiplicities[relation_idx].add_from(&gpu_simd);
         }
     }
 

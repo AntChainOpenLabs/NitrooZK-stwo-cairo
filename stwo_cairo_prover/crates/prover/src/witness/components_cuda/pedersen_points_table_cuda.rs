@@ -85,17 +85,9 @@ impl CudaClaimGenerator {
     /// Merges SIMD multiplicities into this CUDA generator.
     /// This should be called to add multiplicities from SIMD trace generation.
     pub fn merge_simd_multiplicities(&mut self, simd_multiplicities: &[u32]) {
-        // Get current CUDA multiplicities
-        let mut cuda_mults = self.multiplicities.to_vec();
-
-        // Add SIMD multiplicities (handle size difference)
-        let min_len = std::cmp::min(cuda_mults.len(), simd_multiplicities.len());
-        for i in 0..min_len {
-            cuda_mults[i] += simd_multiplicities[i];
-        }
-
-        // Replace multiplicities with merged data
-        self.multiplicities = Uint32Vec::from_vec(cuda_mults);
+        // Upload SIMD mults to GPU and add in-place — no download/upload roundtrip.
+        let gpu_simd = Uint32Vec::from_vec(simd_multiplicities.to_vec());
+        self.multiplicities.add_from(&gpu_simd);
     }
 
     /// Add CUDA inputs to update multiplicities.

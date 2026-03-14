@@ -126,25 +126,11 @@ impl CudaClaimGenerator {
         let log_size = n_rows.next_power_of_two().ilog2();
         let padded_size = 1usize << log_size;
         // Pad input buffers to power-of-two size (kernel expects padded_size elements)
-        // IMPORTANT: Must pad with first PACKED input's values (16 rows) to match SIMD behavior
+        // GPU in-place padding — no download/upload roundtrip.
         const N_LANES: usize = 16;
         if n_rows < padded_size {
-            let padding_count = padded_size - n_rows;
-
             for input in self.packed_inputs.iter_mut() {
-                // Get the first 16 values (first packed input)
-                let input_cpu = input.to_cpu();
-                let first_packed: Vec<M31> = input_cpu[0..N_LANES].to_vec();
-
-                // Create padding by repeating first_packed
-                let padding_vec: Vec<M31> = first_packed
-                    .iter()
-                    .cycle()
-                    .take(padding_count)
-                    .cloned()
-                    .collect();
-                let padding = BaseFieldVec::from_vec(padding_vec);
-                input.extend(&padding);
+                input.pad_with_cycle(n_rows, padded_size, N_LANES);
             }
         }
 
@@ -794,12 +780,9 @@ fn write_trace_cuda(
     }
 
     // Fix enabler column (140): set to 0 for padding rows
+    // GPU in-place zero fill — no download/upload roundtrip.
     if n_actual_rows < padded_size {
-        let mut enabler_cpu = trace.data[140].to_cpu();
-        for i in n_actual_rows..padded_size {
-            enabler_cpu[i] = M31::from_u32_unchecked(0);
-        }
-        trace.data[140] = BaseFieldVec::from_vec(enabler_cpu);
+        trace.data[140].fill_zero_from(n_actual_rows);
     }
 
     (trace, lookup_data, sub_component_inputs)

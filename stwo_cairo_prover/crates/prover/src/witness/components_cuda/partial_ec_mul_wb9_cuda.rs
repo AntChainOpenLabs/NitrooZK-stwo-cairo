@@ -124,15 +124,12 @@ impl CudaClaimGenerator {
         let log_size = padded_size.ilog2();
 
         // Pad input columns to next power of 2 by repeating the first packed row
+        // GPU in-place padding — no download/upload roundtrip.
         if padded_size > n_rows {
+            const N_LANES: usize = 16;
+            let cycle_len = N_LANES.min(n_rows);
             for col in self.input_columns.iter_mut() {
-                let mut vec = col.to_vec();
-                let first_pack: Vec<BaseField> = vec[..16.min(vec.len())].to_vec();
-                let pack_len = first_pack.len();
-                while vec.len() < padded_size {
-                    vec.push(first_pack[vec.len() % pack_len]);
-                }
-                *col = BaseFieldVec::from_vec(vec);
+                col.pad_with_cycle(n_rows, padded_size, cycle_len);
             }
         }
 

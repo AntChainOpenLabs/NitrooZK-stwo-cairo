@@ -126,43 +126,17 @@ impl CudaClaimGenerator {
 
         // Pad inputs to next power of 2 (required for CUDA parallel processing)
         // Match SIMD behavior: pad by cycling through first 16 rows (one packed vector)
+        // GPU in-place padding — no download/upload roundtrip.
         if padded_size > n_rows {
             const N_LANES: usize = 16;
             let cycle_len = n_rows.min(N_LANES);
 
-            // Get first N_LANES values for cycling
-            let vec0_orig = self.packed_inputs.0.to_vec();
-            let vec1_orig = self.packed_inputs.1.to_vec();
-            let vec_arr16_orig: [Vec<u32>; 16] =
-                std::array::from_fn(|i| self.packed_inputs.2 .0[i].to_vec());
-            let vec2_1_orig = self.packed_inputs.2 .1.to_vec();
-
-            // Extend by cycling through first cycle_len values
-            let mut vec0 = vec0_orig.clone();
-            for i in n_rows..padded_size {
-                vec0.push(vec0_orig[i % cycle_len]);
-            }
-            self.packed_inputs.0 = BaseFieldVec::from_vec(vec0);
-
-            let mut vec1 = vec1_orig.clone();
-            for i in n_rows..padded_size {
-                vec1.push(vec1_orig[i % cycle_len]);
-            }
-            self.packed_inputs.1 = BaseFieldVec::from_vec(vec1);
-
+            self.packed_inputs.0.pad_with_cycle(n_rows, padded_size, cycle_len);
+            self.packed_inputs.1.pad_with_cycle(n_rows, padded_size, cycle_len);
             for j in 0..16 {
-                let mut vec = vec_arr16_orig[j].clone();
-                for i in n_rows..padded_size {
-                    vec.push(vec_arr16_orig[j][i % cycle_len]);
-                }
-                self.packed_inputs.2 .0[j] = Uint32Vec::from_vec(vec);
+                self.packed_inputs.2 .0[j].pad_with_cycle(n_rows, padded_size, cycle_len);
             }
-
-            let mut vec2_1 = vec2_1_orig.clone();
-            for i in n_rows..padded_size {
-                vec2_1.push(vec2_1_orig[i % cycle_len]);
-            }
-            self.packed_inputs.2 .1 = BaseFieldVec::from_vec(vec2_1);
+            self.packed_inputs.2 .1.pad_with_cycle(n_rows, padded_size, cycle_len);
         }
 
         let (trace, lookup_data, sub_component_inputs) = write_trace_cuda(

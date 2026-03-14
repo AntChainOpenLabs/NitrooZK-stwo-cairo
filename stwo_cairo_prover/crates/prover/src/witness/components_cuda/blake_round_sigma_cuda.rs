@@ -110,24 +110,17 @@ impl CudaClaimGenerator {
         let col_size = 1usize << LOG_SIZE;
 
         for col_idx in 0..self.mults.len() {
-            // Get current CUDA multiplicities for this column
-            let mut cuda_mults = self.mults[col_idx].to_vec();
-
-            // Get corresponding SIMD multiplicities slice
             let simd_start = col_idx * col_size;
             let simd_end = std::cmp::min(simd_start + col_size, simd_multiplicities.len());
 
             if simd_start < simd_multiplicities.len() {
                 let simd_slice = &simd_multiplicities[simd_start..simd_end];
-
-                // Add SIMD multiplicities to CUDA multiplicities
-                for (i, &simd_val) in simd_slice.iter().enumerate() {
-                    // Convert M31 inner value to u32, add, then convert back to M31
-                    cuda_mults[i] = M31(cuda_mults[i].0.wrapping_add(simd_val));
-                }
-
-                // Write back merged multiplicities to GPU
-                self.mults[col_idx] = BaseFieldVec::from_vec(cuda_mults);
+                // Upload SIMD slice to GPU and add in-place — no download/upload roundtrip.
+                // Multiplicities are counters, so u32 add is correct (same as wrapping_add).
+                let gpu_simd = BaseFieldVec::from_vec(
+                    simd_slice.iter().map(|&v| M31(v)).collect(),
+                );
+                self.mults[col_idx].add_from(&gpu_simd);
             }
         }
     }

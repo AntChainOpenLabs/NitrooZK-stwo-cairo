@@ -89,12 +89,12 @@ impl CudaClaimGenerator {
         let padded_size = n_rows.next_power_of_two();
         let log_size = padded_size.ilog2();
         // Pad inputs to next power of 2 by repeating first row (like SIMD version does)
+        // GPU in-place padding — no download/upload roundtrip.
+        // blake_g uses resize with a single scalar value, which is equivalent to
+        // cycling with cycle_len=1 (repeating the first element).
         if padded_size > n_rows {
-            let first_vals: [u32; 6] = std::array::from_fn(|i| self.packed_inputs[i].to_vec()[0]);
             for i in 0..6 {
-                let mut vec = self.packed_inputs[i].to_vec();
-                vec.resize(padded_size, first_vals[i]);
-                self.packed_inputs[i] = Uint32Vec::from_vec(vec);
+                self.packed_inputs[i].pad_with_cycle(n_rows, padded_size, 1);
             }
         }
 

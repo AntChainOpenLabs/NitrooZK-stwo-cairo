@@ -154,21 +154,12 @@ impl CudaClaimGenerator {
     }
 
     pub fn merge_simd_multiplicities(&mut self, simd_big_mults: &[u32], simd_small_mults: &[u32]) {
-        let mut cuda_big_mults = self.big_mults.to_vec();
-        let mut cuda_small_mults = self.small_mults.to_vec();
+        // Upload SIMD mults to GPU and add in-place — no download/upload roundtrip.
+        let gpu_big = Uint32Vec::from_vec(simd_big_mults.to_vec());
+        self.big_mults.add_from(&gpu_big);
 
-        let min_big_len = std::cmp::min(cuda_big_mults.len(), simd_big_mults.len());
-        for i in 0..min_big_len {
-            cuda_big_mults[i] += simd_big_mults[i];
-        }
-
-        let min_small_len = std::cmp::min(cuda_small_mults.len(), simd_small_mults.len());
-        for i in 0..min_small_len {
-            cuda_small_mults[i] += simd_small_mults[i];
-        }
-
-        self.big_mults = Uint32Vec::from_vec(cuda_big_mults);
-        self.small_mults = Uint32Vec::from_vec(cuda_small_mults);
+        let gpu_small = Uint32Vec::from_vec(simd_small_mults.to_vec());
+        self.small_mults.add_from(&gpu_small);
     }
 
     pub fn write_trace_cuda(

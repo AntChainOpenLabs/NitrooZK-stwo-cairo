@@ -98,31 +98,15 @@ impl CudaClaimGenerator {
         );
 
         // Pad input arrays to next power of 2 (CUDA kernel expects this)
-        // IMPORTANT: Must pad by replicating the first packed input (first 16 rows) to match SIMD
-        // behavior
+        // GPU in-place padding — no download/upload roundtrip.
         const N_LANES: usize = 16;
         if n_rows < padded_size {
-            let padding_count = padded_size - n_rows;
-
-            let pad_with_first_packed = |vec: &mut BaseFieldVec| {
-                let input_cpu = vec.to_cpu();
-                let first_packed: Vec<M31> = input_cpu[0..N_LANES].to_vec();
-                let padding_vec: Vec<M31> = first_packed
-                    .iter()
-                    .cycle()
-                    .take(padding_count)
-                    .cloned()
-                    .collect();
-                let padding = BaseFieldVec::from_vec(padding_vec);
-                vec.extend(&padding);
-            };
-
-            pad_with_first_packed(&mut self.input_limb_0);
-            pad_with_first_packed(&mut self.input_limb_1);
+            self.input_limb_0.pad_with_cycle(n_rows, padded_size, N_LANES);
+            self.input_limb_1.pad_with_cycle(n_rows, padded_size, N_LANES);
             for i in 0..10 {
-                pad_with_first_packed(&mut self.state_0[i]);
-                pad_with_first_packed(&mut self.state_1[i]);
-                pad_with_first_packed(&mut self.state_2[i]);
+                self.state_0[i].pad_with_cycle(n_rows, padded_size, N_LANES);
+                self.state_1[i].pad_with_cycle(n_rows, padded_size, N_LANES);
+                self.state_2[i].pad_with_cycle(n_rows, padded_size, N_LANES);
             }
         }
 
@@ -140,12 +124,9 @@ impl CudaClaimGenerator {
 
         // Fix enabler column (125): the CUDA kernel sets enabler=1 for ALL padded rows,
         // but padding rows should have enabler=0 to match SIMD behavior.
+        // GPU in-place zero fill — no download/upload roundtrip.
         if n_rows < padded_size {
-            let mut enabler_cpu = trace.data[125].to_cpu();
-            for i in n_rows..padded_size {
-                enabler_cpu[i] = M31::from_u32_unchecked(0);
-            }
-            trace.data[125] = BaseFieldVec::from_vec(enabler_cpu);
+            trace.data[125].fill_zero_from(n_rows);
         }
 
         // Add cube_252 inputs (3 per row: state_0, state_1, state_2)
@@ -281,7 +262,7 @@ fn write_trace_cuda(
 
 /// Adds range check multiplicities from the poseidon_full_round_chain trace.
 ///
-/// Downloads trace columns and computes carry values to populate rc_3_3_3_3_3 multiplicities.
+/// Computes carry values on GPU and passes them to rc_3_3_3_3_3 — no GPU→CPU roundtrip.
 fn add_to_multiplicities(
     trace: &CudaComponentTrace<N_TRACE_COLUMNS>,
     n_rows: u32,
@@ -289,164 +270,31 @@ fn add_to_multiplicities(
     range_check_3_3_3_3_3_state: &rc_3_3_3_3_3::CudaClaimGenerator,
 ) {
     let n = n_rows as usize;
-
-    let get_col = |col_idx: usize| -> Vec<M31> { trace.data[col_idx].to_cpu() };
-
-    let cube0_cols: Vec<Vec<M31>> = (32..42).map(|i| get_col(i)).collect();
-    let cube1_cols: Vec<Vec<M31>> = (42..52).map(|i| get_col(i)).collect();
-    let cube2_cols: Vec<Vec<M31>> = (52..62).map(|i| get_col(i)).collect();
-    let key0_cols: Vec<Vec<M31>> = (62..72).map(|i| get_col(i)).collect();
-    let key1_cols: Vec<Vec<M31>> = (72..82).map(|i| get_col(i)).collect();
-    let key2_cols: Vec<Vec<M31>> = (82..92).map(|i| get_col(i)).collect();
-    let combo0_cols: Vec<Vec<M31>> = (92..102).map(|i| get_col(i)).collect();
-    let p_coef_0_col = get_col(102);
-    let combo1_cols: Vec<Vec<M31>> = (103..113).map(|i| get_col(i)).collect();
-    let p_coef_1_col = get_col(113);
-    let combo2_cols: Vec<Vec<M31>> = (114..124).map(|i| get_col(i)).collect();
-    let p_coef_2_col = get_col(124);
-
-    let mut rc_3_3_3_3_3_inputs: [[Vec<M31>; 5]; 6] = Default::default();
-    for set in &mut rc_3_3_3_3_3_inputs {
-        for v in set.iter_mut() {
-            *v = Vec::with_capacity(n);
-        }
+    if n == 0 {
+        return;
     }
 
-    let m31_1 = M31::from(1u32);
-    let m31_2 = M31::from(2u32);
-    let m31_3 = M31::from(3u32);
-    let m31_16 = M31::from(16u32);
-    let m31_136 = M31::from(136u32);
+    // Allocate 30 GPU output arrays (6 sets × 5 columns)
+    let output_vecs: [BaseFieldVec; 30] = std::array::from_fn(|_| BaseFieldVec::new_uninitialized(n));
+    let trace_ptrs: Vec<*const u32> = trace.data.iter().map(|c| c.device_ptr).collect();
+    let output_ptrs: Vec<*const u32> = output_vecs.iter().map(|v| v.device_ptr).collect();
 
-    for row in 0..n {
-        // ========== Linear Combination 0: Coefs (3, 1, 1, 1) ==========
-        let p_coef_0 = p_coef_0_col[row];
-        let val0_0 = m31_3 * cube0_cols[0][row]
-            + cube1_cols[0][row]
-            + cube2_cols[0][row]
-            + key0_cols[0][row]
-            - combo0_cols[0][row];
-        let carry_0_0 = (val0_0 - p_coef_0) * m31_16;
-
-        let mut carries_0 = [M31::from(0u32); 9];
-        carries_0[0] = carry_0_0;
-        for i in 1..7 {
-            let val = m31_3 * cube0_cols[i][row]
-                + cube1_cols[i][row]
-                + cube2_cols[i][row]
-                + key0_cols[i][row]
-                - combo0_cols[i][row];
-            carries_0[i] = (carries_0[i - 1] + val) * m31_16;
-        }
-
-        let val7_0 = m31_3 * cube0_cols[7][row]
-            + cube1_cols[7][row]
-            + cube2_cols[7][row]
-            + key0_cols[7][row]
-            - combo0_cols[7][row];
-        carries_0[7] = (carries_0[6] + val7_0 - p_coef_0 * m31_136) * m31_16;
-
-        let val8_0 = m31_3 * cube0_cols[8][row]
-            + cube1_cols[8][row]
-            + cube2_cols[8][row]
-            + key0_cols[8][row]
-            - combo0_cols[8][row];
-        carries_0[8] = (carries_0[7] + val8_0) * m31_16;
-
-        rc_3_3_3_3_3_inputs[0][0].push(p_coef_0 + m31_1);
-        rc_3_3_3_3_3_inputs[0][1].push(carries_0[0] + m31_1);
-        rc_3_3_3_3_3_inputs[0][2].push(carries_0[1] + m31_1);
-        rc_3_3_3_3_3_inputs[0][3].push(carries_0[2] + m31_1);
-        rc_3_3_3_3_3_inputs[0][4].push(carries_0[3] + m31_1);
-
-        rc_3_3_3_3_3_inputs[1][0].push(carries_0[4] + m31_1);
-        rc_3_3_3_3_3_inputs[1][1].push(carries_0[5] + m31_1);
-        rc_3_3_3_3_3_inputs[1][2].push(carries_0[6] + m31_1);
-        rc_3_3_3_3_3_inputs[1][3].push(carries_0[7] + m31_1);
-        rc_3_3_3_3_3_inputs[1][4].push(carries_0[8] + m31_1);
-
-        // ========== Linear Combination 1: Coefs (1, -1, 1, 1) ==========
-        let p_coef_1 = p_coef_1_col[row];
-        let val0_1 =
-            cube0_cols[0][row] - cube1_cols[0][row] + cube2_cols[0][row] + key1_cols[0][row]
-                - combo1_cols[0][row];
-        let carry_0_1 = (val0_1 - p_coef_1) * m31_16;
-
-        let mut carries_1 = [M31::from(0u32); 9];
-        carries_1[0] = carry_0_1;
-        for i in 1..7 {
-            let val =
-                cube0_cols[i][row] - cube1_cols[i][row] + cube2_cols[i][row] + key1_cols[i][row]
-                    - combo1_cols[i][row];
-            carries_1[i] = (carries_1[i - 1] + val) * m31_16;
-        }
-
-        let val7_1 =
-            cube0_cols[7][row] - cube1_cols[7][row] + cube2_cols[7][row] + key1_cols[7][row]
-                - combo1_cols[7][row];
-        carries_1[7] = (carries_1[6] + val7_1 - p_coef_1 * m31_136) * m31_16;
-
-        let val8_1 =
-            cube0_cols[8][row] - cube1_cols[8][row] + cube2_cols[8][row] + key1_cols[8][row]
-                - combo1_cols[8][row];
-        carries_1[8] = (carries_1[7] + val8_1) * m31_16;
-
-        rc_3_3_3_3_3_inputs[2][0].push(p_coef_1 + m31_2);
-        rc_3_3_3_3_3_inputs[2][1].push(carries_1[0] + m31_2);
-        rc_3_3_3_3_3_inputs[2][2].push(carries_1[1] + m31_2);
-        rc_3_3_3_3_3_inputs[2][3].push(carries_1[2] + m31_2);
-        rc_3_3_3_3_3_inputs[2][4].push(carries_1[3] + m31_2);
-
-        rc_3_3_3_3_3_inputs[3][0].push(carries_1[4] + m31_2);
-        rc_3_3_3_3_3_inputs[3][1].push(carries_1[5] + m31_2);
-        rc_3_3_3_3_3_inputs[3][2].push(carries_1[6] + m31_2);
-        rc_3_3_3_3_3_inputs[3][3].push(carries_1[7] + m31_2);
-        rc_3_3_3_3_3_inputs[3][4].push(carries_1[8] + m31_2);
-
-        // ========== Linear Combination 2: Coefs (1, 1, -2, 1) ==========
-        let p_coef_2 = p_coef_2_col[row];
-        let val0_2 = cube0_cols[0][row] + cube1_cols[0][row] - m31_2 * cube2_cols[0][row]
-            + key2_cols[0][row]
-            - combo2_cols[0][row];
-        let carry_0_2 = (val0_2 - p_coef_2) * m31_16;
-
-        let mut carries_2 = [M31::from(0u32); 9];
-        carries_2[0] = carry_0_2;
-        for i in 1..7 {
-            let val = cube0_cols[i][row] + cube1_cols[i][row] - m31_2 * cube2_cols[i][row]
-                + key2_cols[i][row]
-                - combo2_cols[i][row];
-            carries_2[i] = (carries_2[i - 1] + val) * m31_16;
-        }
-
-        let val7_2 = cube0_cols[7][row] + cube1_cols[7][row] - m31_2 * cube2_cols[7][row]
-            + key2_cols[7][row]
-            - combo2_cols[7][row];
-        carries_2[7] = (carries_2[6] + val7_2 - p_coef_2 * m31_136) * m31_16;
-
-        let val8_2 = cube0_cols[8][row] + cube1_cols[8][row] - m31_2 * cube2_cols[8][row]
-            + key2_cols[8][row]
-            - combo2_cols[8][row];
-        carries_2[8] = (carries_2[7] + val8_2) * m31_16;
-
-        rc_3_3_3_3_3_inputs[4][0].push(p_coef_2 + m31_3);
-        rc_3_3_3_3_3_inputs[4][1].push(carries_2[0] + m31_3);
-        rc_3_3_3_3_3_inputs[4][2].push(carries_2[1] + m31_3);
-        rc_3_3_3_3_3_inputs[4][3].push(carries_2[2] + m31_3);
-        rc_3_3_3_3_3_inputs[4][4].push(carries_2[3] + m31_3);
-
-        rc_3_3_3_3_3_inputs[5][0].push(carries_2[4] + m31_3);
-        rc_3_3_3_3_3_inputs[5][1].push(carries_2[5] + m31_3);
-        rc_3_3_3_3_3_inputs[5][2].push(carries_2[6] + m31_3);
-        rc_3_3_3_3_3_inputs[5][3].push(carries_2[7] + m31_3);
-        rc_3_3_3_3_3_inputs[5][4].push(carries_2[8] + m31_3);
+    // Compute carries on GPU — reads trace columns 32-124, writes 30 biased carry arrays
+    unsafe {
+        bindings_airs::poseidon_full_round_chain_compute_rc_inputs(
+            trace_ptrs.as_ptr(),
+            n as u32,
+            output_ptrs.as_ptr(),
+        );
     }
 
-    // Convert to BaseFieldVec and add to range check generator
-    let cuda_rc_3_3_3_3_3_inputs: [[BaseFieldVec; 5]; 6] =
-        rc_3_3_3_3_3_inputs.map(|arr| arr.map(|v| BaseFieldVec::from_vec(v)));
+    // Reshape flat [30] into [[5]; 6] for add_cuda_inputs
+    let mut iter = output_vecs.into_iter();
+    let cuda_rc_inputs: [[BaseFieldVec; 5]; 6] = std::array::from_fn(|_| {
+        std::array::from_fn(|_| iter.next().unwrap())
+    });
 
-    range_check_3_3_3_3_3_state.add_cuda_inputs(&cuda_rc_3_3_3_3_3_inputs);
+    range_check_3_3_3_3_3_state.add_cuda_inputs(&cuda_rc_inputs);
 }
 
 pub struct CudaInteractionClaimGenerator {
