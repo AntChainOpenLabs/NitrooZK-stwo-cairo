@@ -18,6 +18,8 @@ use cairo_air::claims::{CairoClaim, CairoInteractionClaim};
 use cairo_air::relations::CommonLookupElements;
 use stwo::core::fields::m31::M31;
 use stwo::core::pcs::TreeSubspan;
+use stwo::stwo_cuda::base_field_vec::Uint32Vec;
+use stwo::stwo_cuda::bindings;
 use stwo::prover::backend::cuda::CudaBackend;
 use stwo::prover::backend::simd::SimdBackend;
 use stwo::prover::backend::{Column, ColumnOps};
@@ -593,15 +595,61 @@ impl NativeCairoCudaClaimGenerator {
             None
         };
 
-        // --- Yield public memory into CUDA generators ---
-        for addr in public_memory_addresses
-            .iter()
-            .copied()
-            .map(M31::from_u32_unchecked)
-        {
-            let id = memory_address_to_id_cuda.get_id(addr);
-            memory_address_to_id_cuda.add_cuda_input(&addr);
-            memory_id_to_big_cuda.add_cuda_input(&id);
+        // --- Yield public memory into CUDA generators (batched) ---
+        if !public_memory_addresses.is_empty() {
+            // 1. Batch get all IDs in a single GPU kernel + D2H transfer.
+            let addr_indices: Vec<usize> = public_memory_addresses
+                .iter()
+                .map(|&a| a as usize - 1) // address_to_raw_id is offset by 1
+                .collect();
+            let ids_cpu =
+                memory_address_to_id_cuda.address_to_raw_id.batch_get(&addr_indices);
+
+            // 2. Upload addresses to GPU and scatter-add into addr_mults.
+            let addrs_gpu = Uint32Vec::from_vec(public_memory_addresses.clone());
+            unsafe {
+                bindings::scatter_add(
+                    memory_address_to_id_cuda.multiplicities.device_ptr,
+                    addrs_gpu.device_ptr,
+                    addrs_gpu.size as u32,
+                    1, // offset: mults[addr - 1] += 1
+                );
+            }
+
+            // 3. Decode IDs on CPU and batch scatter-add into id_to_big mults.
+            let mut big_ids = Vec::new();
+            let mut small_ids = Vec::new();
+            for &id in &ids_cpu {
+                let tag = id >> 30;
+                let val = id & 0x3FFF_FFFF;
+                match tag {
+                    0 => small_ids.push(val),
+                    1 => big_ids.push(val),
+                    _ => panic!("Invalid tag in encoded memory ID"),
+                }
+            }
+            if !big_ids.is_empty() {
+                let big_gpu = Uint32Vec::from_vec(big_ids);
+                unsafe {
+                    bindings::scatter_add(
+                        memory_id_to_big_cuda.big_mults.device_ptr,
+                        big_gpu.device_ptr,
+                        big_gpu.size as u32,
+                        0,
+                    );
+                }
+            }
+            if !small_ids.is_empty() {
+                let small_gpu = Uint32Vec::from_vec(small_ids);
+                unsafe {
+                    bindings::scatter_add(
+                        memory_id_to_big_cuda.small_mults.device_ptr,
+                        small_gpu.device_ptr,
+                        small_gpu.size as u32,
+                        0,
+                    );
+                }
+            }
         }
 
         // --- Public data ---
