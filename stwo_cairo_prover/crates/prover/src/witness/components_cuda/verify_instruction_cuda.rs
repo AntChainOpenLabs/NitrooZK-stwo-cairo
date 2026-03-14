@@ -14,8 +14,8 @@ use stwo::prover::backend::simd::m31::{PackedM31, N_LANES};
 use stwo::prover::backend::Column;
 use stwo::prover::poly::circle::CircleEvaluation;
 use stwo::prover::poly::BitReversedOrder;
-use stwo::stwo_cuda::base_field_vec::BaseFieldVec;
-use stwo::stwo_cuda::bindings_airs;
+use stwo::stwo_cuda::base_field_vec::{BaseFieldVec, Uint32Vec};
+use stwo::stwo_cuda::{bindings, bindings_airs};
 use stwo_cairo_adapter::decode::deconstruct_instruction;
 use stwo_cairo_adapter::HashMap;
 
@@ -41,24 +41,40 @@ struct CudaLookupData {
 
 pub struct CudaClaimGenerator {
     instructions: HashMap<u32, u128>,
-    multiplicities: HashMap<u32, AtomicU32>,
+    /// CPU-side multiplicities for add_input / add_packed_inputs (SIMD fallback path).
+    cpu_multiplicities: HashMap<u32, AtomicU32>,
+    /// Sorted unique PC values (CPU copy for write_trace).
+    sorted_pcs_cpu: Vec<u32>,
+    /// Sorted unique PC values on GPU (for binary search kernel).
+    sorted_pcs_gpu: Uint32Vec,
+    /// Dense GPU multiplicity counters, indexed by position in sorted_pcs.
+    gpu_mults: Uint32Vec,
 }
 
 impl CudaClaimGenerator {
     pub fn new(instructions: Vec<(u32, u128)>) -> Self {
         let instructions_map = HashMap::from_iter(instructions);
         let keys = instructions_map.keys().copied();
-        let mut multiplicities = HashMap::with_capacity(keys.len());
-        multiplicities.extend(keys.zip(std::iter::repeat_with(|| AtomicU32::new(0))));
+        let mut cpu_multiplicities = HashMap::with_capacity(keys.len());
+        cpu_multiplicities.extend(keys.zip(std::iter::repeat_with(|| AtomicU32::new(0))));
+
+        // Sort unique PCs and upload to GPU for binary search kernel.
+        let sorted_pcs_cpu: Vec<u32> = instructions_map.keys().copied().sorted().collect();
+        let n_keys = sorted_pcs_cpu.len();
+        let sorted_pcs_gpu = Uint32Vec::from_vec(sorted_pcs_cpu.clone());
+        let gpu_mults = Uint32Vec::new_zeroes(n_keys);
 
         Self {
             instructions: instructions_map,
-            multiplicities,
+            cpu_multiplicities,
+            sorted_pcs_cpu,
+            sorted_pcs_gpu,
+            gpu_mults,
         }
     }
 
     pub fn add_input(&self, (pc, ..): &InputType) {
-        self.multiplicities
+        self.cpu_multiplicities
             .get(&pc.0)
             .unwrap()
             .fetch_add(1, Ordering::Relaxed);
@@ -72,14 +88,22 @@ impl CudaClaimGenerator {
         });
     }
 
+    /// Update multiplicities on GPU using binary search + atomicAdd kernel.
+    /// No GPU→CPU download needed.
     pub fn add_cuda_inputs(&self, cuda_inputs: &[CudaPackedInputType]) {
         for input in cuda_inputs {
             let pc_vec = &input[0];
-            let pc_values = pc_vec.to_cpu();
-            for pc in pc_values {
-                if let Some(mult) = self.multiplicities.get(&pc.0) {
-                    mult.fetch_add(1, Ordering::Relaxed);
-                }
+            if pc_vec.size == 0 {
+                continue;
+            }
+            unsafe {
+                bindings::histogram_by_binary_search(
+                    pc_vec.device_ptr,
+                    pc_vec.size as u32,
+                    self.sorted_pcs_gpu.device_ptr,
+                    self.sorted_pcs_gpu.size as u32,
+                    self.gpu_mults.device_ptr,
+                );
             }
         }
     }
@@ -92,17 +116,28 @@ impl CudaClaimGenerator {
         range_check_4_3_cuda_state: &range_check_4_3_cuda::CudaClaimGenerator,
         range_check_7_2_5_cuda_state: &range_check_7_2_5_cuda::CudaClaimGenerator,
     ) -> (Claim, CudaInteractionClaimGenerator) {
-        let (mut inputs, mut mults) = self
-            .multiplicities
-            .into_iter()
-            .sorted_by_key(|(pc, _)| *pc)
-            .map(|(pc, multiplicity)| {
+        // Download GPU mults (small: ~2000 entries × 4 bytes = ~8KB).
+        let gpu_mults_cpu = self.gpu_mults.to_vec();
+
+        // Build sorted (inputs, mults) using pre-sorted PC order.
+        // Merge GPU mults with any CPU-side mults (from add_input/add_packed_inputs).
+        let (mut inputs, mut mults): (Vec<_>, Vec<_>) = self
+            .sorted_pcs_cpu
+            .iter()
+            .enumerate()
+            .map(|(idx, &pc)| {
                 let (offsets, flags, opcode_extension) =
                     deconstruct_instruction(*self.instructions.get(&pc).unwrap());
-                let multiplicity = M31(multiplicity.into_inner());
+                let cpu_mult = self
+                    .cpu_multiplicities
+                    .get(&pc)
+                    .map(|m| m.load(Ordering::Relaxed))
+                    .unwrap_or(0);
+                let total_mult = gpu_mults_cpu[idx] + cpu_mult;
+                let multiplicity = M31(total_mult);
                 ((M31(pc), offsets, flags, opcode_extension), multiplicity)
             })
-            .unzip::<_, _, Vec<_>, Vec<_>>();
+            .unzip();
 
         let n_rows = inputs.len();
         assert_ne!(n_rows, 0, "verify_instruction must have at least one row");

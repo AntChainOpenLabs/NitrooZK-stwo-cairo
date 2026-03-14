@@ -126,26 +126,12 @@ impl CudaClaimGenerator {
             "pedersen_points_table log_size mismatch"
         );
 
-        let n = 1usize << log_size;
-        let mults_cpu = self.multiplicities.to_vec();
-
-        // Build the base trace column in natural order, matching the SIMD path.
-        // The preprocessed Seq column at position i stores value i (natural order),
-        // so the multiplicity at position i must be mults[i].
-        let mults_bf: Vec<BaseField> = (0..n)
-            .map(|i| BaseField::from_u32_unchecked(mults_cpu[i]))
-            .collect();
-
-        // Upload to GPU via SIMD → CUDA conversion path
-        use stwo::prover::backend::simd::SimdBackend;
-        let simd_col =
-            <SimdBackend as stwo::prover::backend::ColumnOps<BaseField>>::Column::from_iter(
-                mults_bf,
-            );
+        // D2D copy: Uint32Vec → BaseFieldVec (M31 and u32 have identical layout).
+        // Avoids GPU→CPU→GPU roundtrip (32MB for w18).
+        let mults_gpu = BaseFieldVec::from_uint32_vec_device(&self.multiplicities);
         let domain = CanonicCoset::new(log_size).circle_domain();
-        let simd_eval =
-            CircleEvaluation::<SimdBackend, BaseField, BitReversedOrder>::new(domain, simd_col);
-        let cuda_eval = crate::witness::cairo_cuda::convert_simd_to_cuda_evaluation(simd_eval);
+        let cuda_eval =
+            CircleEvaluation::<CudaBackend, BaseField, BitReversedOrder>::new(domain, mults_gpu);
 
         tree_builder.extend_evals(vec![cuda_eval]);
 
