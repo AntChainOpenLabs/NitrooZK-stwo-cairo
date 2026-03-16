@@ -34,7 +34,10 @@ cairo-lang-utils = "=2.16.0"
 
 serde_json.workspace = true
 cairo-vm.workspace = true
-cairo-program-runner-lib = { path = "../../../../proving-utils/crates/cairo-program-runner-lib" }
+cairo-program-runner-lib = { git = "https://github.com/starkware-libs/proving-utils", rev = "8ee9d5f" }
+
+[build-dependencies]
+serde_json = "1.0"
 
 [dev-dependencies]
 tempfile = "3.8.0"

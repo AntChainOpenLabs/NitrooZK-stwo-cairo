@@ -1239,16 +1239,7 @@ pub mod tests {
                 tasks: vec![task_spec],
             };
 
-            let bootloader_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .parent()
-                .unwrap()
-                .parent()
-                .unwrap()
-                .parent()
-                .unwrap()
-                .parent()
-                .unwrap()
-                .join("proving-utils/crates/cairo-program-runner-lib/resources/compiled_programs/bootloaders/simple_bootloader_compiled.json");
+            let bootloader_path = std::path::PathBuf::from(env!("BOOTLOADER_JSON_PATH"));
             let bootloader_program = Program::from_file(bootloader_path.as_path(), Some("main"))
                 .expect("Failed to load simple_bootloader_compiled.json");
 
@@ -1380,9 +1371,9 @@ pub mod tests {
         // ==================== PIE File Tests ====================
 
         fn load_pie_10_transfers_input() -> ProverInput {
-            load_pie_input(std::path::Path::new(
-                "/root/starkware/opensource/cairo_pie_10_transfers_with_6_ecop.zip",
-            ))
+            let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../test_data/test_small_pie/cairo_pie_10_transfers_with_6_ecop.zip");
+            load_pie_input(&path)
         }
 
         fn load_sn_pie_input() -> ProverInput {

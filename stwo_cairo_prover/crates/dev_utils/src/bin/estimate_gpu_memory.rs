@@ -64,12 +64,10 @@ struct Args {
     bootloader_path: Option<PathBuf>,
 }
 
-const BOOTLOADER_RELATIVE: &str = "proving-utils/crates/cairo-program-runner-lib/resources/compiled_programs/bootloaders/simple_bootloader_compiled.json";
-
 /// Resolve the bootloader path. Priority:
 /// 1. --bootloader CLI arg
 /// 2. BOOTLOADER_PATH env var
-/// 3. Auto-detect relative to CARGO_MANIFEST_DIR (source tree)
+/// 3. Build-time path from cargo metadata (set by build.rs)
 fn resolve_bootloader_path(cli_override: Option<&PathBuf>) -> Result<PathBuf> {
     // 1. CLI arg
     if let Some(p) = cli_override {
@@ -96,28 +94,20 @@ fn resolve_bootloader_path(cli_override: Option<&PathBuf>) -> Result<PathBuf> {
         );
     }
 
-    // 3. Auto-detect: walk up from CARGO_MANIFEST_DIR looking for proving-utils/
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let mut dir = manifest_dir.as_path();
-    for _ in 0..6 {
-        let candidate = dir.join(BOOTLOADER_RELATIVE);
-        if candidate.exists() {
-            return Ok(candidate);
-        }
-        match dir.parent() {
-            Some(parent) => dir = parent,
-            None => break,
-        }
+    // 3. Build-time path from cargo metadata
+    let build_time_path = PathBuf::from(env!("BOOTLOADER_JSON_PATH"));
+    if build_time_path.exists() {
+        return Ok(build_time_path);
     }
 
     bail!(
         "Could not find simple_bootloader_compiled.json.\n\
-         Searched up from: {}\n\n\
+         Build-time path: {}\n\n\
          Fix: set BOOTLOADER_PATH env var or pass --bootloader <path>\n\
          Example:\n  \
            export BOOTLOADER_PATH=/path/to/simple_bootloader_compiled.json\n  \
            cargo run --release --bin estimate_gpu_memory -- --pie my.pie.zip",
-        manifest_dir.display()
+        build_time_path.display()
     );
 }
 

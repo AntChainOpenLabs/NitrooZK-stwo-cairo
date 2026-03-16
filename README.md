@@ -56,14 +56,19 @@ This fork adds CUDA GPU acceleration to the stwo-cairo prover.
 ## Repository Setup
 
 1. Clone stwo-cairo.
-2. Place the CUDA-enabled stwo fork at `external/stwo/`.
+2. Clone the CUDA-enabled stwo fork and place it at `external/stwo/`:
+   ```bash
+   mkdir -p external && cd external
+   git clone https://github.com/AntChainOpenLabs/NitrooZK-stwo.git
+   cd NitrooZK-stwo && git checkout v2.1.0-cuda && cd ..
+   mv NitrooZK-stwo stwo
+   ```
    The workspace `Cargo.toml` patches stwo crates to `../external/stwo/crates/...`.
 
 ## Build
 
 | Step | Command |
 |------|---------|
-| CUDA library | `cd external/stwo/crates/stwo/src/stwo_cuda/cuda/build && make -j$(nproc)` |
 | Prover | `cd stwo_cairo_prover && cargo build --release -p stwo-cairo-prover` |
 
 ## Test Guide
@@ -82,9 +87,9 @@ All commands run from `stwo_cairo_prover/`.
 | E2E opcodes (CUDA) | `cargo test --release -p stwo-cairo-prover test_e2e_prove_cuda_all_opcode_components -- --nocapture --test-threads=1` | Smoke test |
 | E2E builtins (CUDA) | `cargo test --release -p stwo-cairo-prover test_e2e_prove_cuda_all_builtins -- --nocapture --test-threads=1` | Smoke test |
 | Small PIE single | `cargo test --release -p stwo-cairo-prover test_prove_verify_small_pie_cuda_once -- --nocapture --test-threads=1` | Cold run, ~600K steps |
-| Small PIE multi | `PROVE_LOOP_COUNT=5 cargo test --release -p stwo-cairo-prover test_prove_verify_small_pie_cuda_multi -- --nocapture --test-threads=1` | Warm = true perf |
+| Small PIE multi | `cargo test --release -p stwo-cairo-prover test_prove_verify_small_pie_cuda_multi -- --nocapture --test-threads=1` | Warm = true perf |
 | SIMD baseline single | `cargo test --release -p stwo-cairo-prover test_prove_verify_small_pie_simd_once -- --nocapture --ignored` | CPU comparison |
-| SIMD baseline multi | `PROVE_LOOP_COUNT=5 cargo test --release -p stwo-cairo-prover test_prove_verify_small_pie_simd_multi -- --nocapture --test-threads=1` | CPU comparison |
+| SIMD baseline multi | `cargo test --release -p stwo-cairo-prover test_prove_verify_small_pie_simd_multi -- --nocapture --test-threads=1` | CPU comparison |
 
 
 ### Advanced / Manual Tests

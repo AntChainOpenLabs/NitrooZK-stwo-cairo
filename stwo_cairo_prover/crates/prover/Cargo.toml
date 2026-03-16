@@ -51,7 +51,7 @@ getrandom_v3 = { version = "0.3", package = "getrandom", features = ["wasm_js"] 
 
 [dev-dependencies]
 stwo-cairo-dev-utils = { path = "../dev_utils" }
-cairo-program-runner-lib = { path = "../../../../proving-utils/crates/cairo-program-runner-lib" }
+cairo-program-runner-lib = { git = "https://github.com/starkware-libs/proving-utils", rev = "8ee9d5f" }
 cairo-vm = { version = "3.1.0", features = ["extensive_hints", "mod_builtin"], default-features = false }
 generic-tests = "0.1.3"
 tempfile = "3.19.1"
@@ -59,3 +59,6 @@ test-log = { version = "0.2.17", features = ["trace"] }
 tracing-subscriber.workspace = true
 rand.workspace = true
 sonic-rs.workspace = true
+
+[build-dependencies]
+serde_json = "1.0"
