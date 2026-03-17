@@ -413,6 +413,13 @@ where
     tracing::info!("[CUDA] Generating preprocessed trace");
     let span = span!(Level::INFO, "Preprocessed trace (CUDA native)").entered();
     let preprocessed_trace = Arc::new(preprocessed_trace.to_preprocessed_trace());
+    // Overlap: start building witness generator (CPU work) while GPU does preprocessed
+    // The constructor does CPU instruction cache building + GPU memory uploads.
+    // These GPU uploads can pipeline with the preprocessed NTT/commit.
+    let native_cuda_gen = crate::witness::cairo_cuda::create_native_cairo_cuda_claim_generator(
+        input,
+        preprocessed_trace.clone(),
+    );
     let evals =
         crate::witness::preprocessed_trace_cuda::gen_preprocessed_trace_cuda(&preprocessed_trace);
     let polys =
@@ -428,10 +435,6 @@ where
     // Base trace — native CUDA generation (per-component GPU kernels, no SIMD bridge).
     let stage_timer = Instant::now();
     tracing::info!("[CUDA] Generating base trace (native CUDA)");
-    let native_cuda_gen = crate::witness::cairo_cuda::create_native_cairo_cuda_claim_generator(
-        input,
-        preprocessed_trace.clone(),
-    );
     let mut tree_builder = commitment_scheme.tree_builder();
     let span = span!(Level::INFO, "Base trace (CUDA native)").entered();
     let (claim, interaction_generator) = native_cuda_gen.write_trace(&mut tree_builder);
