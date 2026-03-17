@@ -385,14 +385,21 @@ where
             pcs_config.fri_config.log_blowup_factor,
         );
 
-    // Twiddles for CUDA backend.
+    // Twiddles for CUDA backend — cached across prove cycles using leaked Box.
+    // TwiddleTree depends only on max_domain_size which is deterministic for the AIR.
+    // Leaking is acceptable: GPU memory stays allocated for the process lifetime anyway.
+    use std::sync::OnceLock;
+    type CudaTwiddles = stwo::prover::poly::twiddles::TwiddleTree<stwo::prover::backend::cuda::CudaBackend>;
+    static TWIDDLE_CACHE: OnceLock<(u32, &'static CudaTwiddles)> = OnceLock::new();
     let stage_timer = Instant::now();
-    tracing::info!("[CUDA] Computing twiddles for CUDA backend");
-    let twiddles = CudaBackend::precompute_twiddles(
-        CanonicCoset::new(max_domain_size)
-            .circle_domain()
-            .half_coset,
-    );
+    let &(cached_size, twiddles) = TWIDDLE_CACHE.get_or_init(|| {
+        tracing::info!("[CUDA] Computing twiddles for CUDA backend (first call)");
+        let tw = CudaBackend::precompute_twiddles(
+            CanonicCoset::new(max_domain_size).circle_domain().half_coset,
+        );
+        (max_domain_size, Box::leak(Box::new(tw)))
+    });
+    assert_eq!(cached_size, max_domain_size, "Twiddle cache size mismatch");
     stwo::stwo_cuda::print_cuda_memory("[CUDA] After twiddles");
 
     // Protocol setup.
