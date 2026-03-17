@@ -433,11 +433,18 @@ where
     let preprocessed_ms = stage_timer.elapsed().as_secs_f64() * 1000.0;
 
     // Base trace — native CUDA generation (per-component GPU kernels, no SIMD bridge).
+    // Use DeferredTreeBuilder to batch all NTT interpolations into a single call,
+    // reducing GPU kernel launches from ~50 to ~5 (one per log_size group).
     let stage_timer = Instant::now();
     tracing::info!("[CUDA] Generating base trace (native CUDA)");
     let mut tree_builder = commitment_scheme.tree_builder();
     let span = span!(Level::INFO, "Base trace (CUDA native)").entered();
-    let (claim, interaction_generator) = native_cuda_gen.write_trace(&mut tree_builder);
+    let (claim, interaction_generator) = {
+        let mut deferred = crate::witness::utils::DeferredTreeBuilder::new(&mut tree_builder, 1);
+        let result = native_cuda_gen.write_trace(&mut deferred);
+        deferred.flush();
+        result
+    };
     span.exit();
     let base_write_ms = stage_timer.elapsed().as_secs_f64() * 1000.0;
     stwo::stwo_cuda::print_cuda_memory("[CUDA] After base trace extend");
@@ -455,11 +462,17 @@ where
     let interaction_elements = CommonLookupElements::draw(channel);
 
     // Interaction trace — native CUDA generation (per-component GPU kernels).
+    // Use DeferredTreeBuilder to batch all NTT interpolations.
     tracing::info!("[CUDA] Generating interaction trace (native CUDA)");
     let mut tree_builder = commitment_scheme.tree_builder();
     let span = span!(Level::INFO, "Interaction trace (CUDA native)").entered();
-    let interaction_claim =
-        interaction_generator.write_interaction_trace(&mut tree_builder, &interaction_elements);
+    let interaction_claim = {
+        let mut deferred = crate::witness::utils::DeferredTreeBuilder::new(&mut tree_builder, 2);
+        let result =
+            interaction_generator.write_interaction_trace(&mut deferred, &interaction_elements);
+        deferred.flush();
+        result
+    };
     span.exit();
     let interaction_write_ms = stage_timer.elapsed().as_secs_f64() * 1000.0;
     stwo::stwo_cuda::print_cuda_memory("[CUDA] After interaction trace extend");

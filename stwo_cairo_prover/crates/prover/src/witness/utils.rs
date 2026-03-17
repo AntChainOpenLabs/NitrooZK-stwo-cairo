@@ -109,6 +109,67 @@ impl<B: BackendForChannel<MC>, MC: MerkleChannel> TreeBuilder<B>
     }
 }
 
+/// A tree builder wrapper that defers NTT interpolation until flush().
+///
+/// Components call `extend_evals()` which collects columns without running NTT.
+/// When `flush()` is called, ALL columns are forwarded to the inner tree builder
+/// in a single `extend_evals()` call, enabling batched NTT by log_size groups.
+///
+/// This reduces the number of GPU kernel launches from ~50+ (one per component)
+/// to ~5 (one per distinct log_size group).
+pub struct DeferredTreeBuilder<'a, TB: TreeBuilder<stwo::prover::backend::cuda::CudaBackend>> {
+    inner: &'a mut TB,
+    pending: Vec<CircleEvaluation<stwo::prover::backend::cuda::CudaBackend, M31, BitReversedOrder>>,
+    /// Track (col_start, col_end) for each extend_evals call, relative to pending
+    spans: Vec<(usize, usize)>,
+    tree_index: usize,
+}
+
+impl<'a, TB: TreeBuilder<stwo::prover::backend::cuda::CudaBackend>>
+    DeferredTreeBuilder<'a, TB>
+{
+    pub fn new(inner: &'a mut TB, tree_index: usize) -> Self {
+        Self {
+            inner,
+            pending: Vec::new(),
+            spans: Vec::new(),
+            tree_index,
+        }
+    }
+
+    /// Flush all pending columns to the inner tree builder in a single batched call.
+    /// Returns the base TreeSubspan covering all flushed columns.
+    pub fn flush(self) -> TreeSubspan {
+        if self.pending.is_empty() {
+            return TreeSubspan {
+                tree_index: self.tree_index,
+                col_start: 0,
+                col_end: 0,
+            };
+        }
+        self.inner.extend_evals(self.pending)
+    }
+}
+
+impl<TB: TreeBuilder<stwo::prover::backend::cuda::CudaBackend>>
+    TreeBuilder<stwo::prover::backend::cuda::CudaBackend> for DeferredTreeBuilder<'_, TB>
+{
+    fn extend_evals(
+        &mut self,
+        columns: Vec<CircleEvaluation<stwo::prover::backend::cuda::CudaBackend, M31, BitReversedOrder>>,
+    ) -> TreeSubspan {
+        let col_start = self.pending.len();
+        self.pending.extend(columns);
+        let col_end = self.pending.len();
+        self.spans.push((col_start, col_end));
+        TreeSubspan {
+            tree_index: self.tree_index,
+            col_start,
+            col_end,
+        }
+    }
+}
+
 fn tree_trace_cells(tree_log_sizes: TreeVec<Vec<u32>>) -> Vec<u64> {
     tree_log_sizes
         .iter()
