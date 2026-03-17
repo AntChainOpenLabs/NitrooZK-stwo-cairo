@@ -151,10 +151,10 @@ impl<const N_RANGES: usize> CudaInteractionClaimGeneratorCuda<N_RANGES> {
         let trace_size = 1usize << log_size;
 
         let interaction_trace: Vec<Col<CudaBackend, BaseField>> = (0..4)
-            .map(|_| Col::<CudaBackend, BaseField>::zeros(trace_size))
+            .map(|_| unsafe { Col::<CudaBackend, BaseField>::uninitialized(trace_size) })
             .collect();
 
-        let cuda_claimed_sum: Col<CudaBackend, BaseField> = Col::<CudaBackend, BaseField>::zeros(4);
+        let cuda_claimed_sum: Col<CudaBackend, BaseField> = unsafe { Col::<CudaBackend, BaseField>::uninitialized(4) };
 
         let interaction_trace_ptrs: Vec<*const u32> =
             interaction_trace.iter().map(|col| col.device_ptr).collect();
@@ -408,13 +408,13 @@ impl<const N_RANGES: usize, const N_RELATIONS: usize>
 
         // 3. Allocate interaction trace columns on GPU (4 × n_pairs).
         let interaction_trace: Vec<Col<CudaBackend, BaseField>> = (0..4 * n_pairs)
-            .map(|_| Col::<CudaBackend, BaseField>::zeros(trace_size))
+            .map(|_| unsafe { Col::<CudaBackend, BaseField>::uninitialized(trace_size) })
             .collect();
         let interaction_trace_ptrs: Vec<*const u32> =
             interaction_trace.iter().map(|col| col.device_ptr).collect();
 
         // 4. Allocate claimed_sum on GPU (4 M31s for QM31).
-        let cuda_claimed_sum: Col<CudaBackend, BaseField> = Col::<CudaBackend, BaseField>::zeros(4);
+        let cuda_claimed_sum: Col<CudaBackend, BaseField> = unsafe { Col::<CudaBackend, BaseField>::uninitialized(4) };
 
         // 5. Call the multi-relation CUDA kernel.
         unsafe {

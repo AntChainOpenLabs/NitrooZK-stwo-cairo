@@ -609,7 +609,7 @@ impl CudaInteractionClaimGenerator {
 
         // Allocate interaction trace columns on GPU (4 extensions x 30 columns)
         let interaction_trace = (0..4 * N_INTERACTION_TRACE_COLUMNS)
-            .map(|_| Col::<CudaBackend, BaseField>::zeros(1 << trace_log_size))
+            .map(|_| unsafe { Col::<CudaBackend, BaseField>::uninitialized(1 << trace_log_size) })
             .collect_vec();
 
         // Collect lookup data pointers (already on GPU - no download needed)

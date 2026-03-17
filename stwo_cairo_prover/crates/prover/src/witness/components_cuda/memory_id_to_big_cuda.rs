@@ -187,7 +187,7 @@ impl CudaClaimGenerator {
             let current_log_size = current_table_size.ilog2();
 
             let trace_columns: Vec<Col<CudaBackend, BaseField>> = (0..N_M31_IN_FELT252 + 1)
-                .map(|_| Col::<CudaBackend, BaseField>::zeros(current_table_size))
+                .map(|_| unsafe { Col::<CudaBackend, BaseField>::uninitialized(current_table_size) })
                 .collect();
 
             let transposed_ptrs: Vec<*const u32> = self
@@ -252,7 +252,7 @@ impl CudaClaimGenerator {
         let small_log_size = small_table_size.ilog2();
 
         let small_trace_columns: Vec<Col<CudaBackend, BaseField>> = (0..N_M31_IN_SMALL_FELT252 + 1)
-            .map(|_| Col::<CudaBackend, BaseField>::zeros(small_table_size))
+            .map(|_| unsafe { Col::<CudaBackend, BaseField>::uninitialized(small_table_size) })
             .collect();
 
         let small_trace_ptrs: Vec<*const u32> = small_trace_columns
@@ -366,11 +366,11 @@ impl CudaInteractionClaimGeneratorCuda {
             let trace_size = 1usize << log_size;
 
             let interaction_trace: Vec<Col<CudaBackend, BaseField>> = (0..N_BIG_INTERACTION_COLS)
-                .map(|_| Col::<CudaBackend, BaseField>::zeros(trace_size))
+                .map(|_| unsafe { Col::<CudaBackend, BaseField>::uninitialized(trace_size) })
                 .collect();
 
             let cuda_claimed_sum: Col<CudaBackend, BaseField> =
-                Col::<CudaBackend, BaseField>::zeros(4);
+                unsafe { Col::<CudaBackend, BaseField>::uninitialized(4) };
 
             let value_column_ptrs: Vec<*const u32> =
                 value_columns.iter().map(|col| col.device_ptr).collect();
@@ -424,11 +424,11 @@ impl CudaInteractionClaimGeneratorCuda {
 
         let small_interaction_trace: Vec<Col<CudaBackend, BaseField>> = (0
             ..N_SMALL_INTERACTION_COLS)
-            .map(|_| Col::<CudaBackend, BaseField>::zeros(small_trace_size))
+            .map(|_| unsafe { Col::<CudaBackend, BaseField>::uninitialized(small_trace_size) })
             .collect();
 
         let small_cuda_claimed_sum: Col<CudaBackend, BaseField> =
-            Col::<CudaBackend, BaseField>::zeros(4);
+            unsafe { Col::<CudaBackend, BaseField>::uninitialized(4) };
 
         let small_value_column_ptrs: Vec<*const u32> = self
             .small_value_columns

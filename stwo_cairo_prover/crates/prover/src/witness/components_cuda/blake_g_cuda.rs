@@ -473,7 +473,7 @@ impl CudaInteractionClaimGenerator {
         let cuda_claimed_sum = BaseFieldVec::new_uninitialized(4);
 
         let interaction_trace = (0..4 * N_INTERACTION_TRACE_COLUMNS)
-            .map(|_| Col::<CudaBackend, BaseField>::zeros(1 << trace_log_size))
+            .map(|_| unsafe { Col::<CudaBackend, BaseField>::uninitialized(1 << trace_log_size) })
             .collect_vec();
 
         let lookup_blake_g_0_vec = collect_lookup_ptrs!(self.lookup_data, blake_g_0);

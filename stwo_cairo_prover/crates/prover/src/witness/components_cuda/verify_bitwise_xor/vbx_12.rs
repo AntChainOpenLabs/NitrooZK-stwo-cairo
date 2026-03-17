@@ -125,10 +125,10 @@ impl CudaInteractionClaimGenerator {
 
         // 8 column pairs × 4 QM31 coords = 32 interaction trace columns
         let interaction_trace: Vec<Col<CudaBackend, BaseField>> = (0..32)
-            .map(|_| Col::<CudaBackend, BaseField>::zeros(trace_size))
+            .map(|_| unsafe { Col::<CudaBackend, BaseField>::uninitialized(trace_size) })
             .collect();
 
-        let cuda_claimed_sum: Col<CudaBackend, BaseField> = Col::<CudaBackend, BaseField>::zeros(4);
+        let cuda_claimed_sum: Col<CudaBackend, BaseField> = unsafe { Col::<CudaBackend, BaseField>::uninitialized(4) };
 
         let mults_ptrs: Vec<*const u32> =
             self.multiplicities.iter().map(|m| m.device_ptr).collect();

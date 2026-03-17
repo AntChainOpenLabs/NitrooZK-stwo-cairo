@@ -141,10 +141,10 @@ impl CudaInteractionClaimGeneratorCuda {
         let trace_size = 1usize << log_size;
 
         let interaction_trace: Vec<Col<CudaBackend, BaseField>> = (0..4)
-            .map(|_| Col::<CudaBackend, BaseField>::zeros(trace_size))
+            .map(|_| unsafe { Col::<CudaBackend, BaseField>::uninitialized(trace_size) })
             .collect();
 
-        let cuda_claimed_sum: Col<CudaBackend, BaseField> = Col::<CudaBackend, BaseField>::zeros(4);
+        let cuda_claimed_sum: Col<CudaBackend, BaseField> = unsafe { Col::<CudaBackend, BaseField>::uninitialized(4) };
 
         let interaction_trace_ptrs: Vec<*const u32> =
             interaction_trace.iter().map(|col| col.device_ptr).collect();

@@ -409,7 +409,7 @@ impl CudaInteractionClaimGenerator {
         // 19 pairs × 4 m31 columns = 76 columns
         // Each pair stores: 4 m31 for accumulated QM31 value
         let interaction_trace = (0..4 * N_INTERACTION_TRACE_COLUMNS)
-            .map(|_| Col::<CudaBackend, BaseField>::zeros(1 << trace_log_size))
+            .map(|_| unsafe { Col::<CudaBackend, BaseField>::uninitialized(1 << trace_log_size) })
             .collect_vec();
 
         // Collect lookup data pointers - 5 memory_address_to_id

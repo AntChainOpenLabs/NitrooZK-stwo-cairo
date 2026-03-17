@@ -610,7 +610,7 @@ impl CudaInteractionClaimGenerator {
 
         // 分配 interaction trace，每列一个 Col
         let interaction_trace = (0..4 * N_INTERACTION_TRACE_COLUMNS)
-            .map(|_| Col::<CudaBackend, BaseField>::zeros(1 << trace_log_size))
+            .map(|_| unsafe { Col::<CudaBackend, BaseField>::uninitialized(1 << trace_log_size) })
             .collect_vec();
 
         // 收集所有 lookup ptrs

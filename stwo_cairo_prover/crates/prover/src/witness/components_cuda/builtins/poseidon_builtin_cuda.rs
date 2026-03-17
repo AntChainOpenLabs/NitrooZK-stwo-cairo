@@ -561,7 +561,7 @@ impl CudaInteractionClaimGenerator {
 
         // Allocate GPU buffers for interaction trace columns (18 logup cols × 4 M31 = 72 columns)
         let interaction_trace: Vec<Col<CudaBackend, BaseField>> = (0..N_INTERACTION_TRACE_COLUMNS)
-            .map(|_| Col::<CudaBackend, BaseField>::zeros(1 << trace_log_size))
+            .map(|_| unsafe { Col::<CudaBackend, BaseField>::uninitialized(1 << trace_log_size) })
             .collect_vec();
 
         // Collect lookup data pointers - memory_address_to_id
