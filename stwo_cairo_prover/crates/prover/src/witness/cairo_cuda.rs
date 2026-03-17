@@ -704,6 +704,7 @@ impl NativeCairoCudaClaimGenerator {
         mut self,
         tree_builder: &mut impl TreeBuilder<CudaBackend>,
     ) -> (CairoClaim, NativeCairoCudaInteractionClaimGenerator) {
+        let wt_timer = std::time::Instant::now();
         // ==== 1. Generate opcode traces (CUDA) ====
         let span = span!(Level::INFO, "base_trace: opcodes").entered();
         let (opcodes_claim, opcodes_interaction_gen) = self.opcodes_cuda.write_trace(
@@ -717,6 +718,7 @@ impl NativeCairoCudaClaimGenerator {
             &self.vbx_8_cuda,
         );
         span.exit();
+        let t_opcodes = wt_timer.elapsed().as_secs_f64() * 1000.0;
 
         // ==== 2. Generate verify_instruction trace (CUDA) ====
         let span = span!(Level::INFO, "base_trace: verify_instruction").entered();
@@ -729,6 +731,7 @@ impl NativeCairoCudaClaimGenerator {
                 &self.range_checks_trace_generator.rc_7_2_5_trace_generator,
             );
         span.exit();
+        let t_verify = wt_timer.elapsed().as_secs_f64() * 1000.0;
 
         // ==== 3. Generate blake_context traces (CUDA) ====
         let span = span!(Level::INFO, "base_trace: blake_context").entered();
@@ -802,6 +805,7 @@ impl NativeCairoCudaClaimGenerator {
             (None, None, None, None, None, None)
         };
         span.exit();
+        let t_blake = wt_timer.elapsed().as_secs_f64() * 1000.0;
 
         // ==== 4. Generate builtins traces ====
         let span = span!(Level::INFO, "base_trace: builtins").entered();
@@ -955,6 +959,7 @@ impl NativeCairoCudaClaimGenerator {
             .unzip();
 
         span.exit();
+        let t_builtins = wt_timer.elapsed().as_secs_f64() * 1000.0;
 
         // ==== 5. Generate pedersen_context traces ====
         let span = span!(Level::INFO, "base_trace: pedersen_context").entered();
@@ -1054,6 +1059,7 @@ impl NativeCairoCudaClaimGenerator {
         };
 
         span.exit();
+        let t_pedersen = wt_timer.elapsed().as_secs_f64() * 1000.0;
 
         // ==== 5.5 Poseidon aggregator (native CUDA) ====
         // GPU ID arrays from poseidon_builtin_split passed directly — no CPU roundtrip.
@@ -1077,6 +1083,7 @@ impl NativeCairoCudaClaimGenerator {
                 None => (None, None),
             };
         span.exit();
+        let t_pos_agg = wt_timer.elapsed().as_secs_f64() * 1000.0;
 
         // ==== 6. Generate poseidon chain traces (CUDA) ====
         // PoseidonContextCudaClaimGenerator runs the CUDA chain generators
@@ -1094,12 +1101,14 @@ impl NativeCairoCudaClaimGenerator {
                 None => (None, None),
             };
         span.exit();
+        let t_pos_chains = wt_timer.elapsed().as_secs_f64() * 1000.0;
 
         // ==== 7. Generate memory_address_to_id (CUDA) ====
         let span = span!(Level::INFO, "base_trace: memory_address_to_id").entered();
         let (memory_address_to_id_claim, memory_address_to_id_interaction_gen) =
             self.memory_address_to_id_cuda.write_trace(tree_builder);
         span.exit();
+        let t_mem_addr = wt_timer.elapsed().as_secs_f64() * 1000.0;
 
         // ==== 8. Generate memory_id_to_big (CUDA) ====
         let span = span!(Level::INFO, "base_trace: memory_id_to_big").entered();
@@ -1111,12 +1120,14 @@ impl NativeCairoCudaClaimGenerator {
                 LOG_MAX_BIG_SIZE,
             );
         span.exit();
+        let t_mem_big = wt_timer.elapsed().as_secs_f64() * 1000.0;
 
         // ==== 9. Generate range_checks (CUDA) ====
         let span = span!(Level::INFO, "base_trace: range_checks").entered();
         let (range_checks_claim, range_checks_interaction_gen) =
             self.range_checks_trace_generator.write_trace(tree_builder);
         span.exit();
+        let t_rc = wt_timer.elapsed().as_secs_f64() * 1000.0;
 
         // ==== 10. Generate verify_bitwise_xor 4, 7, 8, 9 (all CUDA) ====
         let span = span!(Level::INFO, "base_trace: verify_bitwise_xor").entered();
@@ -1138,6 +1149,11 @@ impl NativeCairoCudaClaimGenerator {
         let (verify_bitwise_xor_9_claim, verify_bitwise_xor_9_interaction_gen) =
             self.vbx_9_cuda.write_trace_cuda(tree_builder);
         span.exit();
+        let t_vbx = wt_timer.elapsed().as_secs_f64() * 1000.0;
+        println!("[BASE-TRACE-TIMING] opcodes:{t_opcodes:.1} verify:{:.1} blake:{:.1} builtins:{:.1} pedersen:{:.1} pos_agg:{:.1} pos_chains:{:.1} mem_addr:{:.1} mem_big:{:.1} rc:{:.1} vbx:{:.1}ms (cumulative)",
+            t_verify - t_opcodes, t_blake - t_verify, t_builtins - t_blake,
+            t_pedersen - t_builtins, t_pos_agg - t_pedersen, t_pos_chains - t_pos_agg,
+            t_mem_addr - t_pos_chains, t_mem_big - t_mem_addr, t_rc - t_mem_big, t_vbx - t_rc);
 
         // Assemble flat CairoClaim matching v1.1.0 struct field order.
         // Opcodes: unpack from grouped OpcodeClaim → individual Option fields.

@@ -363,8 +363,10 @@ where
 {
     use stwo::prover::backend::cuda::CudaBackend;
     use stwo::prover::prove;
+    use std::time::Instant;
 
     let _span = span!(Level::INFO, "prove_cairo_cuda").entered();
+    let total_timer = Instant::now();
     let ProverParameters {
         channel_hash: _,
         channel_salt,
@@ -384,6 +386,7 @@ where
         );
 
     // Twiddles for CUDA backend.
+    let stage_timer = Instant::now();
     tracing::info!("[CUDA] Computing twiddles for CUDA backend");
     let twiddles = CudaBackend::precompute_twiddles(
         CanonicCoset::new(max_domain_size)
@@ -403,7 +406,10 @@ where
         commitment_scheme.set_store_polynomials_coefficients();
     }
 
+    let setup_ms = stage_timer.elapsed().as_secs_f64() * 1000.0;
+
     // Preprocessed trace — generate on GPU.
+    let stage_timer = Instant::now();
     tracing::info!("[CUDA] Generating preprocessed trace");
     let span = span!(Level::INFO, "Preprocessed trace (CUDA native)").entered();
     let preprocessed_trace = Arc::new(preprocessed_trace.to_preprocessed_trace());
@@ -417,8 +423,10 @@ where
     tree_builder.commit(channel);
     stwo::stwo_cuda::print_cuda_memory("[CUDA] After preprocessed commit");
     span.exit();
+    let preprocessed_ms = stage_timer.elapsed().as_secs_f64() * 1000.0;
 
     // Base trace — native CUDA generation (per-component GPU kernels, no SIMD bridge).
+    let stage_timer = Instant::now();
     tracing::info!("[CUDA] Generating base trace (native CUDA)");
     let native_cuda_gen = crate::witness::cairo_cuda::create_native_cairo_cuda_claim_generator(
         input,
@@ -428,13 +436,17 @@ where
     let span = span!(Level::INFO, "Base trace (CUDA native)").entered();
     let (claim, interaction_generator) = native_cuda_gen.write_trace(&mut tree_builder);
     span.exit();
+    let base_write_ms = stage_timer.elapsed().as_secs_f64() * 1000.0;
     stwo::stwo_cuda::print_cuda_memory("[CUDA] After base trace extend");
 
     claim.mix_into(channel);
     tree_builder.commit(channel);
     stwo::stwo_cuda::print_cuda_memory("[CUDA] After base trace commit");
+    let base_ms = stage_timer.elapsed().as_secs_f64() * 1000.0;
+    println!("[CUDA-TIMING-DETAIL] base_write:{base_write_ms:.1}ms  base_commit:{:.1}ms", base_ms - base_write_ms);
 
     // Draw interaction elements.
+    let stage_timer = Instant::now();
     let interaction_pow = CudaBackend::grind(channel, INTERACTION_POW_BITS);
     channel.mix_u64(interaction_pow);
     let interaction_elements = CommonLookupElements::draw(channel);
@@ -446,6 +458,7 @@ where
     let interaction_claim =
         interaction_generator.write_interaction_trace(&mut tree_builder, &interaction_elements);
     span.exit();
+    let interaction_write_ms = stage_timer.elapsed().as_secs_f64() * 1000.0;
     stwo::stwo_cuda::print_cuda_memory("[CUDA] After interaction trace extend");
 
     tracing::info!(
@@ -462,8 +475,11 @@ where
     interaction_claim.mix_into(channel);
     tree_builder.commit(channel);
     stwo::stwo_cuda::print_cuda_memory("[CUDA] After interaction trace commit");
+    let interaction_ms = stage_timer.elapsed().as_secs_f64() * 1000.0;
+    println!("[CUDA-TIMING-DETAIL] interaction_write:{interaction_write_ms:.1}ms  interaction_commit:{:.1}ms", interaction_ms - interaction_write_ms);
 
     // Component provers with CUDA backend.
+    let stage_timer = Instant::now();
     let component_builder = CairoComponents::new(
         &claim,
         &interaction_elements,
@@ -479,6 +495,9 @@ where
     let proof = prove::<CudaBackend, _>(&components, channel, commitment_scheme)?;
     stwo::stwo_cuda::print_cuda_memory("[CUDA] After prove()");
     span.exit();
+    let prove_ms = stage_timer.elapsed().as_secs_f64() * 1000.0;
+    let total_ms = total_timer.elapsed().as_secs_f64() * 1000.0;
+    println!("[CUDA-TIMING] setup:{setup_ms:.1}ms  preprocessed:{preprocessed_ms:.1}ms  base:{base_ms:.1}ms  interaction:{interaction_ms:.1}ms  prove:{prove_ms:.1}ms  TOTAL:{total_ms:.1}ms");
 
     event!(
         name: "component_info",
