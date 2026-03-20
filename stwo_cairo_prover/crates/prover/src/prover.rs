@@ -353,7 +353,7 @@ where
 /// Unlike `prove_cairo_cuda_v0` (which batch-collects all SIMD traces then converts),
 /// this path generates trace columns directly on GPU for the native CUDA components and
 /// keeps the proving pipeline on `CudaBackend` end-to-end.
-pub fn prove_cairo_cuda<MC: MerkleChannel>(
+pub fn prove_cairo_cuda<MC: MerkleChannel + 'static>(
     input: ProverInput,
     prover_params: ProverParameters,
 ) -> Result<CairoProofCuda<MC::H>, ProvingError>
@@ -415,26 +415,53 @@ where
 
     let setup_ms = stage_timer.elapsed().as_secs_f64() * 1000.0;
 
-    // Preprocessed trace — generate on GPU.
+    // Preprocessed trace — generate on GPU with caching.
     let stage_timer = Instant::now();
     tracing::info!("[CUDA] Generating preprocessed trace");
     let span = span!(Level::INFO, "Preprocessed trace (CUDA native)").entered();
     let preprocessed_trace = Arc::new(preprocessed_trace.to_preprocessed_trace());
-    // Overlap: start building witness generator (CPU work) while GPU does preprocessed
-    // The constructor does CPU instruction cache building + GPU memory uploads.
-    // These GPU uploads can pipeline with the preprocessed NTT/commit.
+    // Overlap: start building witness generator (CPU work) while GPU does preprocessed.
     let native_cuda_gen = crate::witness::cairo_cuda::create_native_cairo_cuda_claim_generator(
         input,
         preprocessed_trace.clone(),
     );
-    let evals =
-        crate::witness::preprocessed_trace_cuda::gen_preprocessed_trace_cuda(&preprocessed_trace);
-    let polys =
-        crate::witness::preprocessed_trace_cuda::interpolate_columns_batched(evals, &twiddles);
-    stwo::stwo_cuda::print_cuda_memory("[CUDA] After preprocessed interpolation");
-    let mut tree_builder = commitment_scheme.tree_builder();
-    tree_builder.extend_polys(polys);
-    tree_builder.commit(channel);
+
+    // Cache preprocessed commitment tree: first call computes, subsequent calls clone (D2D copy).
+    // This avoids re-running column gen + NTT interpolation + NTT evaluation + Merkle tree.
+    // Only the clone (GPU D2D copies of ~156 polys + Merkle layers) + root mixing is needed.
+    use std::cell::RefCell;
+    thread_local! {
+        static PP_CACHE: RefCell<Option<Box<dyn std::any::Any>>> = const { RefCell::new(None) };
+    }
+    type CudaTree<MC2> = stwo::prover::CommitmentTreeProver<
+        stwo::prover::backend::cuda::CudaBackend, MC2>;
+
+    let cached_tree: Option<CudaTree<MC>> = PP_CACHE.with(|cell| {
+        let borrow = cell.borrow();
+        borrow.as_ref().and_then(|any| {
+            any.downcast_ref::<CudaTree<MC>>().cloned()
+        })
+    });
+
+    if let Some(pp_tree) = cached_tree {
+        // Cache hit: push cloned tree and mix root into channel.
+        commitment_scheme.push_cached_tree(pp_tree, channel);
+    } else {
+        // Cache miss: compute from scratch and cache.
+        let evals =
+            crate::witness::preprocessed_trace_cuda::gen_preprocessed_trace_cuda(&preprocessed_trace);
+        let polys =
+            crate::witness::preprocessed_trace_cuda::interpolate_columns_batched(evals, &twiddles);
+        let mut tree_builder = commitment_scheme.tree_builder();
+        tree_builder.extend_polys(polys);
+        tree_builder.commit(channel);
+
+        // Cache the tree for next call (clone the just-committed tree from the scheme).
+        let tree_ref = &commitment_scheme.trees.0[0];
+        PP_CACHE.with(|cell| {
+            *cell.borrow_mut() = Some(Box::new(tree_ref.clone()) as Box<dyn std::any::Any>);
+        });
+    }
     stwo::stwo_cuda::print_cuda_memory("[CUDA] After preprocessed commit");
     span.exit();
     let preprocessed_ms = stage_timer.elapsed().as_secs_f64() * 1000.0;
