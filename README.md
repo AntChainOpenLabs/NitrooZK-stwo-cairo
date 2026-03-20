@@ -141,10 +141,10 @@ All commands run from `stwo_cairo_prover/`.
 
 ### Pipeline Breakdown (warm run average, runs 2–4)
 
-| Stage | Time |
-|-------|------|
-| Preprocessed trace (gen + interp + commit) | ~11 ms |
-| Base trace (gen + commit) | ~96 ms |
-| Interaction trace (gen + commit) | ~50 ms |
-| prove\_ex (composition + FRI + decommit) | ~93 ms |
-| **Total** | **~250 ms** |
+| Stage | v1.1.0-cuda | v1.1.1-cuda |
+|-------|-------------|-------------|
+| Preprocessed trace (gen + interp + commit) | ~8 ms | ~11 ms |
+| Base trace (gen + commit) | ~207 ms | ~96 ms |
+| Interaction trace (gen + commit) | ~58 ms | ~50 ms |
+| prove\_ex (composition + FRI + decommit) | ~106 ms | ~93 ms |
+| **Total** | **~430 ms** | **~250 ms** |
