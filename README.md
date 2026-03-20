@@ -60,7 +60,7 @@ This fork adds CUDA GPU acceleration to the stwo-cairo prover.
    ```bash
    mkdir -p external && cd external
    git clone https://github.com/AntChainOpenLabs/NitrooZK-stwo.git
-   cd NitrooZK-stwo && git checkout v2.1.0-cuda && cd ..
+   cd NitrooZK-stwo && git checkout v2.1.1-cuda && cd ..
    mv NitrooZK-stwo stwo
    ```
    The workspace `Cargo.toml` patches stwo crates to `../external/stwo/crates/...`.
@@ -132,22 +132,19 @@ All commands run from `stwo_cairo_prover/`.
 
 | Metric | SIMD (32-Core 4.4 GHz CPU) | CUDA Cold (run 0) | CUDA Warm (run 1+) | Speedup (warm) |
 |--------|-----------|-------------------|---------------------|----------------|
-| Proof generation | ~2690 ms | ~1002 ms | ~430 ms | **6.3x** |
+| Proof generation | ~2690 ms | ~883 ms | ~250 ms | **10.8x** |
 | Verification | < 10 ms | < 10 ms | < 10 ms | — |
 | Peak GPU memory | — | ~6.5 GB | ~6.5 GB | — |
 
 > **Warm runs are the true performance metric.** Cold run includes one-time
 > CUDA context initialization and twiddle precomputation.
 
-### Pipeline Breakdown (warm run average, runs 1–4)
+### Pipeline Breakdown (warm run average, runs 2–4)
 
 | Stage | Time |
 |-------|------|
-| Twiddles | ~18 ms |
-| Preprocessed trace (gen + interp + commit) | ~8 ms |
-| Base trace (gen + commit) | ~207 ms |
-| Interaction trace (gen + commit) | ~58 ms |
-| prove\_ex (composition + FRI + decommit) | ~106 ms |
-| Proof of work | < 1 ms |
-| Other (adapt, serialization) | ~33 ms |
-| **Total** | **~430 ms** |
+| Preprocessed trace (gen + interp + commit) | ~11 ms |
+| Base trace (gen + commit) | ~96 ms |
+| Interaction trace (gen + commit) | ~50 ms |
+| prove\_ex (composition + FRI + decommit) | ~93 ms |
+| **Total** | **~250 ms** |
